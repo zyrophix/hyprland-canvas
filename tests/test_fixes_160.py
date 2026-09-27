@@ -16,7 +16,20 @@ from canvas.daemon import DaemonState
 from canvas.ipc import IpcServer, _daemon_alive
 from canvas.navigation import Navigator
 from canvas.panning import EdgeScrollState, PanningState
-from canvas.toggle_state import FORMAT_VERSION, load
+from canvas.toggle_state import FORMAT_VERSION, ToggleStateError, load
+
+
+def _navigator(**kwargs):
+    """A Navigator with no state, so the test does not read the real state file.
+
+    The constructor calls toggle_state.load(), which reads
+    /run/user/<uid>/canvas/toggle-state.json. Whether a workspace is in canvas
+    mode, and which spawn rules it believes are registered, then depends on
+    whatever the running daemon last wrote — so these assertions silently
+    changed meaning depending on the machine.
+    """
+    with patch("canvas.navigation.toggle_state.load", return_value={}):
+        return Navigator(ipc=kwargs.pop("ipc", None) or MagicMock(), cooldown=0.0, **kwargs)
 
 
 def _state(ipc: MagicMock | None = None) -> DaemonState:
@@ -167,7 +180,7 @@ def test_window_pan_excludes_rejects_wrong_type():
 def test_navigate_centres_on_the_monitors_the_target_lives_on():
     """Resolving the centre with no coordinates falls back to the focused
     monitor, which would drag a target from a second monitor onto the first."""
-    nav = Navigator(ipc=MagicMock(), cooldown=0.0)
+    nav = _navigator()
     left = _client("0x1", "kitty", at=[100, 100])
     target = _client("0x2", "kitty", at=[3000, 500])
     windows = [left, target]
@@ -194,7 +207,7 @@ def test_navigate_centres_on_the_monitors_the_target_lives_on():
 
 
 def test_navigate_falls_back_to_focused_monitor_when_target_is_off_all_outputs():
-    nav = Navigator(ipc=MagicMock(), cooldown=0.0)
+    nav = _navigator()
     left = _client("0x1", "kitty", at=[100, 100])
     target = _client("0x2", "kitty", at=[9000, 9000])
     windows = [left, target]
@@ -301,7 +314,7 @@ def test_drop_spawn_rules_disables_every_registered_name():
 
 
 def test_drop_spawn_rules_with_nothing_registered_does_nothing():
-    navigator = Navigator(ipc=MagicMock(), cooldown=0.0)
+    navigator = _navigator()
 
     with patch("canvas.navigation.spawnrules.disable") as disable:
         assert navigator.drop_spawn_rules() == []
@@ -351,3 +364,98 @@ def test_run_drops_spawn_rules_on_the_way_out():
         daemon.run()
 
     navigator.drop_spawn_rules.assert_called_once()
+
+
+# --- a rule that cannot be retracted must keep its name ---------------------
+#
+# The compositor's rule engine is global. Retracting a rule is one eval, and if
+# that eval fails the rule stays live — so discarding the name is what makes it
+# permanent. Every call site has to keep the record of a rule it failed to
+# disable.
+
+
+def test_a_stuck_rule_keeps_its_name_in_the_state_after_off():
+    """The dangerous one: OFF already wrote the state before disabling.
+
+    A failure here used to leave the rule live in the compositor and the state
+    file no longer naming it, so nothing anywhere could ever retract it again.
+    """
+    nav = Navigator(
+        ipc=MagicMock(),
+        protected_apps=[],
+        cooldown=0.0,
+        auto_float=True,
+        spawn_cfg={"center": True, "default": "30%x40%", "rules": []},
+    )
+    with patch("canvas.navigation.toggle_state.load", return_value={}):
+        nav._canvas_mode_workspaces[1] = {"0x1": {"at": [0, 0], "size": [935, 493]}}
+        nav._spawn_rules[1] = ["canvas-spawn-ws1-default"]
+
+    with (
+        patch.object(nav, "_get_active_workspace_id", return_value=1),
+        patch.object(nav, "_tile_windows", return_value=True),
+        patch.object(nav, "_get_floating_windows", return_value=[]),
+        patch.object(nav, "_snapshot_floating_geos", return_value={}),
+        patch("canvas.navigation.spawnrules.disable", return_value=False) as disable,
+        patch("canvas.navigation.toggle_state.save") as save,
+    ):
+        assert nav.canvas_toggle_all() == "CANVAS_OFF"
+
+    disable.assert_called_once()
+    # OFF writes the state before it disables, so the name has to come back in
+    # a later write or nothing is left that can ever retract the rule.
+    assert len(save.call_args_list) == 2, save.call_args_list
+    first, second = (c[0][0] for c in save.call_args_list)
+    assert "canvas-spawn-ws1-default" not in str(first), first
+    assert "canvas-spawn-ws1-default" in str(second), second
+
+
+def test_a_stuck_rule_keeps_its_name_in_memory_when_on_cannot_start():
+    nav = Navigator(
+        ipc=MagicMock(),
+        protected_apps=[],
+        cooldown=0.0,
+        auto_float=True,
+        spawn_cfg={"center": True, "default": "30%x40%", "rules": []},
+    )
+    nav._spawn_rules = {}
+
+    with (
+        patch.object(nav, "_get_active_workspace_id", return_value=1),
+        patch.object(nav, "_snapshot_tiled_windows", return_value={}),
+        patch.object(nav, "_snapshot_floating_addresses", return_value=set()),
+        patch.object(nav, "_get_floating_windows", return_value=[]),
+        patch(
+            "canvas.navigation.spawnrules.resolve_workareas",
+            return_value={1: (0, 0, 1920, 1080)},
+        ),
+        patch("canvas.navigation.spawnrules.register", return_value=["r1"]),
+        patch("canvas.navigation.spawnrules.disable", return_value=False),
+        patch("canvas.navigation.toggle_state.save", side_effect=ToggleStateError("disk full")),
+    ):
+        assert nav.canvas_toggle_all() == "ERROR:STATE_SAVE_FAILED"
+
+    assert nav._spawn_rules[1] == ["r1"]
+
+
+def test_shutdown_keeps_reporting_a_rule_it_could_not_retract():
+    """The state file still names it, so the next start finishes the job."""
+    nav = _navigator()
+    nav._spawn_rules = {4: ["canvas-spawn-ws4-default"]}
+
+    with patch("canvas.navigation.spawnrules.disable", return_value=False) as disable:
+        assert nav.drop_spawn_rules() == ["canvas-spawn-ws4-default"]
+
+    disable.assert_called_once()
+    assert nav._spawn_rules == {}
+
+
+def test_rehydrate_keeps_the_stale_names_visible_when_it_cannot_retract_them():
+    """It must not clear the registry it just failed to clean."""
+    nav = _navigator(ipc=MagicMock(), auto_float=False)
+    nav._spawn_rules = {4: ["canvas-spawn-ws4-default"]}
+
+    with patch("canvas.navigation.spawnrules.disable", return_value=False):
+        nav.rehydrate_spawn_rules()
+
+    assert nav._spawn_rules == {4: ["canvas-spawn-ws4-default"]}

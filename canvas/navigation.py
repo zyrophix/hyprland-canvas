@@ -394,8 +394,21 @@ class Navigator:
             # Only now that the tiling succeeded may the spawn rules go away:
             # a failed tile rolls the workspace back to floating, where the
             # rules are still the right behaviour.
-            if stale_rules:
-                spawnrules.disable(stale_rules, self._ipc)
+            if stale_rules and not spawnrules.disable(stale_rules, self._ipc):
+                # The rules are still live in the compositor's engine, and the
+                # state written above no longer names them. Write the names back
+                # so the next daemon start has something to retract; dropping
+                # them here is how a rule outlives every record of itself.
+                log.error(
+                    "canvas OFF: spawn rules for workspace %s are still active "
+                    "and their names are being kept for the next start",
+                    workspace_id,
+                )
+                next_rules[workspace_id] = stale_rules
+                try:
+                    self._persist_canvas_state(next_modes, next_floating, next_pre, next_rules)
+                except toggle_state.ToggleStateError as e:
+                    log.error("canvas OFF: could not record the stuck rule names: %s", e)
 
             self._canvas_mode_workspaces = next_modes
             self._floating_geos = next_floating
@@ -464,7 +477,11 @@ class Navigator:
             self._persist_canvas_state(next_modes, next_floating, next_pre, next_rules)
         except toggle_state.ToggleStateError as e:
             log.warning("canvas ON state save failed: %s", e)
-            spawnrules.disable(rule_names, self._ipc)
+            # A disable that fails leaves these rules live with no record of
+            # them, since the state write is what failed. Keep the names in
+            # memory so the next OFF or the shutdown path can retry.
+            if rule_names and not spawnrules.disable(rule_names, self._ipc):
+                self._spawn_rules[workspace_id] = rule_names
             return "ERROR:STATE_SAVE_FAILED"
 
         if not self._set_all_floating(workspace_id, floating=True):
@@ -474,8 +491,11 @@ class Navigator:
         else:
             failure = ""
         if failure:
-            # Canvas never came up, so its spawn rules must not stay behind.
-            spawnrules.disable(rule_names, self._ipc)
+            # Canvas never came up, so its spawn rules must not stay behind. If
+            # they cannot be retracted, keep the names so the next OFF or the
+            # shutdown path still knows about them.
+            if rule_names and not spawnrules.disable(rule_names, self._ipc):
+                self._spawn_rules[workspace_id] = rule_names
             compositor_rollback = self._set_snapshot_floating(
                 workspace_id, tiled_snapshot, floating=False
             )
@@ -653,10 +673,15 @@ class Navigator:
         disabled by rehydrate_spawn_rules on the next start.
         """
         names = [name for rules in self._spawn_rules.values() for name in rules]
-        self._spawn_rules = {}
         if not names:
+            self._spawn_rules = {}
             return []
-        spawnrules.disable(names, self._ipc)
+        if not spawnrules.disable(names, self._ipc):
+            # The state file still names them, which is the record that matters:
+            # the next start retracts them. Clearing memory here would only lose
+            # the daemon's own chance to try again if it is asked to.
+            log.error("shutdown: spawn rules could not be retracted: %s", names)
+        self._spawn_rules = {}
         if debug.enabled():
             debug.dbg2("SPAWN_RULES_DROP", count=len(names), names=names)
         return names
@@ -672,8 +697,13 @@ class Navigator:
         """
         stale = [name for names in self._spawn_rules.values() for name in names]
         if stale:
-            spawnrules.disable(stale, self._ipc)
-        self._spawn_rules = {}
+            if spawnrules.disable(stale, self._ipc):
+                self._spawn_rules = {}
+            else:
+                log.error(
+                    "rules from a previous run could not be retracted and are still live: %s",
+                    stale,
+                )
 
         if self._auto_float:
             workareas = spawnrules.resolve_workareas(self._ipc)
