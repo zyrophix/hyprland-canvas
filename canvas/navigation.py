@@ -639,10 +639,6 @@ class Navigator:
             log.warning("snapshot floating geos failed: %s", e)
             return None
 
-    def floating_addresses(self, workspace_id: int) -> set[str]:
-        """Addresses of the floating windows on a workspace, empty on failure."""
-        return self._snapshot_floating_addresses(workspace_id) or set()
-
     def drop_spawn_rules(self) -> list[str]:
         """Take down every spawn rule still registered, for shutdown.
 

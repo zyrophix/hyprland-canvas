@@ -109,7 +109,6 @@ def test_edge_scroll_lua_skips_excluded_addresses():
     ipc = MagicMock()
     ds = _state(ipc)
     ds.edge_scroll_workspace = 1
-    ds.edge_scroll_addresses = {"0x1", "0x2", "0x3"}
     ds.edge_scroll_excluded = {"0x2"}
     ds.edge_scroll._dragged_addr = "0x3"
 

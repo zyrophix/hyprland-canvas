@@ -457,7 +457,6 @@ def _daemon_state():
     from canvas.panning import EdgeScrollState, PanningState
 
     navigator = MagicMock()
-    navigator.floating_addresses.return_value = {"0x1", "0x2"}
     ipc = MagicMock()
     ipc.eval_lua.return_value = "ok"
     state = DaemonState(
@@ -467,27 +466,6 @@ def _daemon_state():
         ipc=ipc,
     )
     return state, navigator, ipc
-
-
-def test_edge_scroll_addresses_are_captured_once_at_start():
-    state, navigator, _ipc_obj = _daemon_state()
-    state.edge_scroll_workspace = 1
-
-    with (
-        patch("canvas.daemon.get_cursor_pos", return_value=(10, 10)),
-        patch.object(state, "_get_active_workspace_id", return_value=1),
-        patch.object(
-            state,
-            "_find_window_at_cursor",
-            return_value={"address": "0x1", "at": [0, 0], "size": [100, 100]},
-        ),
-        patch.object(state, "_get_focused_window_address", return_value="0x1"),
-        patch.object(state, "_fetch_monitor_rect", return_value=True),
-    ):
-        state._handle_edge_start()
-
-    assert state.edge_scroll_addresses == {"0x1", "0x2"}
-    navigator.floating_addresses.assert_called_once_with(1)
 
 
 def test_a_window_that_arrived_mid_canvas_never_enters_the_remembered_set():

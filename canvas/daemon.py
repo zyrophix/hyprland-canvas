@@ -49,10 +49,6 @@ class DaemonState:
         # floating layouts stay untouched.
         self.baseline_workspace: int | None = None
         self.edge_scroll_workspace: int | None = None
-        # Floating windows moved by the current edge-scroll, captured once at
-        # EDGE_START. Resolving them per frame would add a j/clients round trip
-        # to the 60Hz loop, on top of the move dispatch it already issues.
-        self.edge_scroll_addresses: set[str] = set()
         # Windows kept out of edge-scroll pan, resolved once at EDGE_START.
         self.edge_scroll_excluded: set[str] = set()
         # Workspace already reported as panned, so a long pan records once
@@ -350,7 +346,6 @@ class DaemonState:
 
         self.edge_scroll_workspace = ws_id
         # One lookup for the whole gesture; edge_scroll_move runs per frame.
-        self.edge_scroll_addresses = self.navigator.floating_addresses(ws_id)
         self.edge_scroll_excluded = self._pan_excluded_addresses(ws_id)
         if not self._fetch_monitor_rect():
             # Without real geometry the overflow math would run against a
