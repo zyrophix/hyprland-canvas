@@ -35,3 +35,11 @@ jobs:
 
       - name: Run tests with coverage
         run: uv run pytest --cov=canvas --cov-fail-under=80 --cov-report=term-missing -v
+
+  markdown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Markdownlint
+        run: npx --yes markdownlint-cli2 $(git ls-files '*.md' | tr '\n' ' ')

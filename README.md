@@ -222,8 +222,10 @@ never be asked to be larger than the screen. `match` accepts the same
 properties as a Hyprland `windowrule` matcher, and values are treated as
 regular expressions, so `.*nvim.*` works. Note that Hyprland matches these
 patterns as a *full* match: `class: btop` matches only the exact class `btop`.
-Rules are checked in order and the first match wins; everything else gets
-`default`.
+When several rules match the same window the **last** one wins, the same as
+Hyprland's own `windowrule` — the compositor applies matching rules in
+registration order and the last write wins. So list broad rules first and
+narrow ones last; anything that matches no rule gets `default`.
 
 Windows that were already floating when canvas was enabled keep their size —
 they are not canvas windows, so nothing is done to them. Tiled windows that

@@ -2,6 +2,11 @@ post_install() {
   echo "hyprland-canvas installed."
   echo "Start the daemon with: canvasd"
   echo "Add the keybinds from the project README."
+  echo ""
+  echo "The daemon runs on built-in defaults and needs no config file."
+  echo "To customise it, copy the annotated template and edit that:"
+  echo "  mkdir -p ~/.config/canvas"
+  echo "  cp /usr/share/hyprland-canvas/config.yml ~/.config/canvas/config.yml"
 }
 
 post_upgrade() {

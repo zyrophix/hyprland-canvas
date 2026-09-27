@@ -248,11 +248,20 @@ def full_match(pattern: str, value: str) -> bool:
 def resolve_spec(spawn_cfg: dict[str, Any], props: dict[str, str]) -> str:
     """Pick the size spec for one already open window.
 
-    Same first-match-wins order as the registered rules, so an existing window
-    and a freshly opened one end up the same size.
+    Iterates in reverse so the LAST matching rule wins, which is what the
+    compositor does: it applies every matching rule in registration order and
+    the last write wins. Scanning forward would hand an already open window the
+    first rule's size, while a freshly opened one matching the same rules got
+    the last one.
+
+    Rules mentioning a property that j/clients does not carry are skipped: the
+    compositor can match them, we cannot.
     """
     default = str(spawn_cfg.get("default", ""))
-    for entry in spawn_cfg.get("rules", []):
+    rules = spawn_cfg.get("rules", [])
+    if not isinstance(rules, list):
+        return default
+    for entry in reversed(rules):
         if not isinstance(entry, dict):
             continue
         match = entry.get("match")

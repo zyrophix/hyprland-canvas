@@ -433,3 +433,67 @@ def test_resolve_spec_matches_the_compositor_result():
         width, height = parse_size(spec, workarea)
         lua = built[override_rule_name(1, index)]
         assert f"size = {{ {width}, {height} }}" in lua
+
+
+def test_last_matching_rule_wins_not_the_first():
+    """The compositor applies matching rules in order and the last write wins.
+
+    Scanning forward would size an already open window with the first rule while
+    a freshly opened one matching the same rules got the last one.
+    """
+    cfg = {
+        "default": "600x400",
+        "rules": [
+            {"match": {"title": ".*"}, "size": "100x100"},
+            {"match": {"class": "btop"}, "size": "200x200"},
+        ],
+    }
+    props = {"class": "btop", "title": "btop — htop"}
+
+    # both rules match; the later one must win, as it does in the compositor
+    assert resolve_spec(cfg, props) == "200x200"
+
+
+def test_overlapping_rules_agree_with_the_compositor():
+    """Local pick and registered rule must produce the same pixels."""
+    cfg = {
+        "default": "600x400",
+        "rules": [
+            {"match": {"title": ".*"}, "size": "100x100"},
+            {"match": {"class": "btop"}, "size": "50%x40%"},
+            {"match": {"class": "nope"}, "size": "999x999"},
+        ],
+    }
+    props = {"class": "btop", "title": "btop — htop"}
+    workarea = (0, 0, 1920, 1080)
+
+    # what the compositor settles on: the last registered rule that matches
+    built = build_rules(cfg, 1, workarea)
+    compositor = "50%x40%"  # rules[1]; rules[0] is overwritten by it
+
+    width, height = parse_size(resolve_spec(cfg, props), workarea)
+    assert (width, height) == parse_size(compositor, workarea)
+    assert f"size = {{ {width}, {height} }}" in built[2][1]
+
+
+def test_unmatched_rules_fall_through_to_the_default():
+    cfg = {
+        "default": "600x400",
+        "rules": [
+            {"match": {"class": "btop"}, "size": "100x100"},
+            {"match": {"class": "kitty"}, "size": "200x200"},
+        ],
+    }
+    assert resolve_spec(cfg, {"class": "zen"}) == "600x400"
+
+
+def test_reverse_scan_still_skips_rules_we_cannot_evaluate():
+    """A later unevaluable rule must not shadow an earlier evaluable one."""
+    cfg = {
+        "default": "600x400",
+        "rules": [
+            {"match": {"class": "btop"}, "size": "100x100"},
+            {"match": {"workspace": 3}, "size": "200x200"},
+        ],
+    }
+    assert resolve_spec(cfg, {"class": "btop"}) == "100x100"

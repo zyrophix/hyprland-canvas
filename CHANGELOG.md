@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- When several `canvas.spawn` rules match the same window, the last one now
+  wins, matching the compositor. Previously an already open window was sized
+  with the first matching rule while a newly opened one got the last, so the
+  two could end up different sizes. Documentation updated accordingly.
+
 ## [1.5.0] — 2026-09-27
 
 ### Added
