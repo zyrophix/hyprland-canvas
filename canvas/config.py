@@ -36,6 +36,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "invert": {
         "enabled": True,
     },
+    "window_pan_excludes": [],
     "edge_scroll": {
         "enabled": True,
         "ramp_distance": 50,
@@ -98,12 +99,22 @@ def validate(cfg: dict[str, Any]) -> list[str]:
         apps = nav.get("protected_apps")
         if not isinstance(apps, list) or not all(isinstance(a, str) for a in apps):
             errors.append("navigation.protected_apps must be a list of strings")
+        elif any(not a.strip() for a in apps):
+            # Matched as a substring against the window class, so an empty entry
+            # matches every window and silently disables navigation.
+            errors.append("navigation.protected_apps entries must be non-empty")
 
     invert = cfg.get("invert")
     if not isinstance(invert, dict):
         errors.append("invert section must be a mapping")
     elif not isinstance(invert.get("enabled"), bool):
         errors.append(f"invert.enabled must be a boolean, got {invert.get('enabled')!r}")
+
+    excludes = cfg.get("window_pan_excludes")
+    if not isinstance(excludes, list) or not all(isinstance(a, str) for a in excludes):
+        errors.append("window_pan_excludes must be a list of strings")
+    elif any(not a.strip() for a in excludes):
+        errors.append("window_pan_excludes entries must be non-empty")
 
     es = cfg.get("edge_scroll")
     if not isinstance(es, dict):

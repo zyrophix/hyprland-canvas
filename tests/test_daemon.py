@@ -308,6 +308,10 @@ def test_handle_ipc_edge_start():
             '"workspace":{"id":3}}]'
         ),
         json.dumps({"address": "0xabc"}),
+        _clients_json(
+            '[{"address":"0xabc","floating":true,"at":[100,200],"size":[500,300],'
+            '"workspace":{"id":3}}]'
+        ),
         '[{"focused":true,"x":0,"y":0,"width":1920,"height":1080}]',
     ]
     ds = _make_daemon_state(ipc)
@@ -395,6 +399,12 @@ def test_handle_ipc_edge_start_picks_window_under_cursor():
             '"workspace":{"id":1}}]'
         ),
         json.dumps({"address": "0xbbb"}),
+        _clients_json(
+            '[{"address":"0xaaa","floating":true,"at":[100,100],"size":[400,300],'
+            '"workspace":{"id":1}},'
+            '{"address":"0xbbb","floating":true,"at":[600,100],"size":[400,300],'
+            '"workspace":{"id":1}}]'
+        ),
         '[{"focused":true,"x":0,"y":0,"width":1920,"height":1080}]',
     ]
     ds = _make_daemon_state(ipc)
@@ -418,6 +428,12 @@ def test_handle_ipc_edge_start_overlap_last_wins():
             '"workspace":{"id":1}}]'
         ),
         json.dumps({"address": "0xbbb"}),
+        _clients_json(
+            '[{"address":"0xaaa","floating":true,"at":[100,100],"size":[400,300],'
+            '"workspace":{"id":1}},'
+            '{"address":"0xbbb","floating":true,"at":[150,150],"size":[400,300],'
+            '"workspace":{"id":1}}]'
+        ),
         '[{"focused":true,"x":0,"y":0,"width":1920,"height":1080}]',
     ]
     ds = _make_daemon_state(ipc)

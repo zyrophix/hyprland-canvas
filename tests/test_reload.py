@@ -25,6 +25,7 @@ edge_scroll:
 navigation:
   cooldown: 0.75
   protected_apps: ["Foo", "BAR"]
+window_pan_excludes: ["PIP", "Zoom"]
 canvas:
   preserve_geometry: false
   auto_float: true
@@ -92,6 +93,7 @@ def test_apply_config_maps_every_key(tmp_path):
     # protected_apps are lowercased at construction; a reload must not skip that.
     assert ds.navigator._protected_apps == ["foo", "bar"]
     assert ds.navigator._cooldown == 0.75
+    assert ds._pan_exclude_apps == ["pip", "zoom"]
     assert ds.navigator._preserve_geometry is False
     assert ds.navigator._auto_float is True
     assert ds.navigator._spawn_cfg["default"] == "800x600"

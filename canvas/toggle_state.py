@@ -149,6 +149,19 @@ def load(path: str | None = None) -> State:
             version = int(raw.get("_v", 0))
         except Exception:
             version = 0
+        if version > FORMAT_VERSION:
+            # Readable but not ours: the parsers below would silently interpret
+            # a newer layout as v4, and the next save would overwrite the file
+            # with v4, destroying whatever the newer version added. Say so loudly
+            # rather than losing a future release's state without explanation.
+            log.warning(
+                "state file format v%s is newer than v%s — it will be read as v%s "
+                "and rewritten on the next save, losing whatever v%s added",
+                version,
+                FORMAT_VERSION,
+                FORMAT_VERSION,
+                version,
+            )
         state: State = {}
         for k, v in raw.items():
             if k == "_v":

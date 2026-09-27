@@ -203,6 +203,7 @@ def test_edge_start_cancels_active_pan():
         '{"id":1}',
         '[{"address":"0xabc","floating":true,"at":[100,100],"size":[400,300],"workspace":{"id":1}}]',
         '{"address":"0xabc"}',
+        '[{"address":"0xabc","floating":true,"at":[100,100],"size":[400,300],"workspace":{"id":1}}]',
         '[{"focused":true,"x":0,"y":0,"width":1920,"height":1080}]',
     ]
     ds.ipc = ipc

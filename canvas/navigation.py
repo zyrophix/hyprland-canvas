@@ -252,11 +252,24 @@ class Navigator:
         if target_addr is None:
             return True
 
-        center = self._get_monitor_center()
-        if center is None:
-            return False
         floating_updated = self._get_floating_windows(workspace_id)
         if floating_updated is None:
+            return False
+        # Pan the monitor the target actually lives on. Resolving the centre
+        # without coordinates falls back to the focused monitor, so a target on
+        # a second monitor was dragged onto the first one to satisfy a
+        # navigation command. Falls back to the focused monitor when the target
+        # sits outside every output.
+        target_at = next(
+            (w.get("at") for w in floating_updated if w.get("address") == target_addr),
+            None,
+        )
+        center = None
+        if isinstance(target_at, list) and len(target_at) >= 2:
+            center = self._get_monitor_center(int(target_at[0]), int(target_at[1]))
+        if center is None:
+            center = self._get_monitor_center()
+        if center is None:
             return False
         center_x, center_y = center
         return self._pan_to_window(floating_updated, target_addr, center_x, center_y, workspace_id)

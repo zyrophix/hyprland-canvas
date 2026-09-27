@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `window_pan_excludes` lists window classes that stay in place while the canvas
+  pans, for things that should not be dragged off-screen — a video call, a
+  picture-in-picture, a persistent dashboard. Matching is a case-insensitive
+  substring of the window class, the same as `protected_apps`. Excluded windows
+  are left out of the pan snapshot, which also keeps them out of the shutdown
+  restore and out of the remembered geometry, since they never moved. Fullscreen
+  windows are always excluded.
 - `canvas-ctl reload` re-reads the config file and applies it to the running
   daemon, so tuning speeds, protected apps, edge-scroll and `canvas.spawn`
   sizing no longer needs a restart. The new config is validated before anything
@@ -26,6 +33,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A fullscreen floating window is no longer dragged along by the camera. The
+  `fullscreen` field from `j/clients` was read in exactly one place, so a
+  fullscreen call or video would travel off-screen with every pan frame.
+- Edge-scroll no longer pans up to √2 faster diagonally. The four edge
+  contributions are independent, so a corner accumulated two full-speed
+  contributions. `edge_scroll.max_speed` could not catch it: it clamps each
+  axis independently and never sees the magnitude of the vector.
+- `canvas-ctl nav-*` centres on the monitor the target window is actually on.
+  Resolving the monitor centre with no cursor coordinates fell back to the
+  focused monitor, so navigating to a window on a second monitor dragged it
+  onto the first one.
+- The daemon now exits non-zero if its IPC thread dies. The bind can fail
+  before or during the run — a stale socket path, revoked permissions, or the
+  symlink guard — and the singleton lock is already held at that point, so the
+  daemon used to keep running, answer nothing, and refuse every later start
+  until it was killed with SIGKILL.
+- Loading a state file written by a newer format version now logs a warning.
+  The parsers accepted any version at or above 2 and read it as the current
+  format, so the file was silently misinterpreted and then overwritten.
+- `navigation.protected_apps` entries must be non-empty. They are matched as a
+  substring of the window class, so an empty entry matched every window and
+  silently disabled navigation with no diagnostic.
 - When several `canvas.spawn` rules match the same window, the last one now
   wins, matching the compositor. Previously an already open window was sized
   with the first matching rule while a newly opened one got the last, so the

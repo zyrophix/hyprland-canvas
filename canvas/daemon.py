@@ -53,11 +53,15 @@ class DaemonState:
         # EDGE_START. Resolving them per frame would add a j/clients round trip
         # to the 60Hz loop, on top of the move dispatch it already issues.
         self.edge_scroll_addresses: set[str] = set()
+        # Windows kept out of edge-scroll pan, resolved once at EDGE_START.
+        self.edge_scroll_excluded: set[str] = set()
         # Workspace already reported as panned, so a long pan records once
         # instead of on every frame.
         self._panned_noted_ws: int | None = None
         # Serializes compositor mutations from the IPC thread with main-loop
         # pan/edge moves. State objects retain their own fine-grained locks.
+        # Addresses to leave alone when panning, from window_pan_excludes.
+        self._pan_exclude_apps: list[str] = []
         self._operation_lock = threading.RLock()
 
     def apply_config(self, cfg: dict[str, Any]) -> None:
@@ -93,6 +97,7 @@ class DaemonState:
             nav_cfg = cfg["navigation"]
             self.navigator._protected_apps = [a.lower() for a in nav_cfg["protected_apps"]]
             self.navigator._cooldown = nav_cfg["cooldown"]
+            self._pan_exclude_apps = [a.lower() for a in cfg["window_pan_excludes"]]
 
             canvas_cfg = cfg["canvas"]
             self.navigator._preserve_geometry = canvas_cfg["preserve_geometry"]
@@ -348,6 +353,7 @@ class DaemonState:
         self.edge_scroll_workspace = ws_id
         # One lookup for the whole gesture; edge_scroll_move runs per frame.
         self.edge_scroll_addresses = self.navigator.floating_addresses(ws_id)
+        self.edge_scroll_excluded = self._pan_excluded_addresses(ws_id)
         if not self._fetch_monitor_rect():
             # Without real geometry the overflow math would run against a
             # default 1920x1080 rect — on multi-monitor setups that causes
@@ -465,8 +471,50 @@ class DaemonState:
             self.baselines = {}
         return stopped
 
+    def _pan_excluded(self, window: dict[str, Any]) -> bool:
+        """True if this window must not be dragged along by the camera.
+
+        Substring match on class, same as Navigator's protected apps. A fullscreen
+        window is excluded unconditionally: it owns the output, and panning it
+        away would take the user's whole view with it.
+        """
+        if window.get("fullscreen"):
+            return True
+        window_class = str(window.get("class", "")).lower()
+        return any(app in window_class for app in self._pan_exclude_apps)
+
+    def _pan_excluded_addresses(self, workspace_id: int) -> set[str]:
+        """Addresses on a workspace that must not be dragged by the camera.
+
+        One lookup per gesture, not per frame. The edge-scroll path re-queries
+        nothing afterwards: the exclusion is baked into the Lua it sends.
+        """
+        try:
+            clients = json.loads(self.ipc.send("j/clients"))
+        except Exception as e:
+            log.debug("pan exclusion lookup failed: %s", e)
+            return set()
+        out: set[str] = set()
+        for w in clients:
+            if not w.get("floating"):
+                continue
+            wsw = w.get("workspace")
+            if not isinstance(wsw, dict) or wsw.get("id") != workspace_id:
+                continue
+            if self._pan_excluded(w):
+                addr = w.get("address", "")
+                if addr:
+                    out.add(str(addr))
+        return out
+
     def fetch_baselines(self) -> bool:
-        """Snapshot floating windows of the ACTIVE workspace as pan baselines."""
+        """Snapshot floating windows of the ACTIVE workspace as pan baselines.
+
+        Excluded windows are left out of the snapshot rather than filtered in the
+        move loop: both move_windows_to_delta and restore_baselines iterate this
+        dict, so omitting a window here makes it stay put and skip the restore,
+        which is the whole point of excluding it.
+        """
         try:
             ws_resp = self.ipc.send("j/activeworkspace")
             ws: dict[str, Any] = json.loads(ws_resp)
@@ -477,6 +525,8 @@ class DaemonState:
             baselines: dict[str, tuple[int, int]] = {}
             for w in clients:
                 if not w.get("floating"):
+                    continue
+                if self._pan_excluded(w):
                     continue
                 wsw = w.get("workspace")
                 if not isinstance(wsw, dict) or wsw.get("id") != workspace_id:
@@ -568,7 +618,7 @@ class DaemonState:
             log.warning("window move failed: %s", e)
 
     def edge_scroll_move(self, dx: int, dy: int) -> None:
-        """Move all floating windows EXCEPT the dragged one by (dx, dy) relative.
+        """Move all floating windows except the skipped ones by (dx, dy).
 
         Camera follows the dragged window: other windows move opposite.
         Cursor at right edge → camera right → other windows move left.
@@ -580,25 +630,34 @@ class DaemonState:
             log.warning("edge-scroll move skipped: no workspace captured")
             return
         ws_id = int(self.edge_scroll_workspace)
-        dragged = self.edge_scroll.dragged_addr
+        # Skipped: the dragged window, plus anything window_pan_excludes or
+        # fullscreen ruled out when the gesture was armed.
+        skip = {str(self.edge_scroll.dragged_addr), *self.edge_scroll_excluded}
         try:
-            safe_addr = _lua_escape(dragged)
-            lua = (
-                f"{LUA_DISPATCH_HELPER}\n"
-                f"local ws = hl.get_windows({{ floating = true, workspace = {ws_id} }})\n"
-                f"for _, w in ipairs(ws) do\n"
-                f'  if tostring(w.address) ~= "{safe_addr}" then\n'
-                f"    _canvas_dispatch(hl.dispatch(hl.dsp.window.move({{"
-                f" x = {dx}, y = {dy},"
-                f" relative = true, window = w }})))\n"
-                f"  end\n"
-                f"end\n"
+            lua = [LUA_DISPATCH_HELPER, "local skip = {"]
+            for addr in sorted(skip):
+                lua.append(f'  ["{_lua_escape(addr)}"] = true,')
+            lua.extend(
+                [
+                    "}",
+                    f"local ws = hl.get_windows({{ floating = true, workspace = {ws_id} }})",
+                    "for _, w in ipairs(ws) do",
+                    "  if not skip[tostring(w.address)] then",
+                    "    _canvas_dispatch(hl.dispatch(hl.dsp.window.move({"
+                    f" x = {dx}, y = {dy},"
+                    " relative = true, window = w })))",
+                    "  end",
+                    "end",
+                ]
             )
-            self.ipc.eval_lua(lua)
-            # Edge scroll moves every floating window on the workspace, so all of
-            # them count as deliberately placed. Uses the addresses captured at
-            # EDGE_START — no IPC in this per-frame path.
-            self.navigator.note_panned(ws_id, self.edge_scroll_addresses)
+            self.ipc.eval_lua("\n".join(lua))
+            # Edge scroll moves the other floating windows, so those count as
+            # deliberately placed. Uses the addresses captured at EDGE_START —
+            # no IPC in this per-frame path. Skipped windows are subtracted:
+            # they did not move, so their geometry is not a user choice.
+            self.navigator.note_panned(
+                ws_id, self.edge_scroll_addresses - self.edge_scroll_excluded
+            )
         except Exception as e:
             log.warning("edge-scroll move failed: %s", e)
 
@@ -657,6 +716,7 @@ def run() -> None:
     prev_time = time.monotonic()
 
     poller_died = False
+    ipc_died = False
     try:
         prev_total = (0, 0)
         while not stop_event.is_set():
@@ -688,6 +748,17 @@ def run() -> None:
                 log.error("cursor poller died — cannot track cursor position")
                 break
 
+            # The IPC thread can die before or during the loop: a stale socket
+            # path, revoked permissions, or the symlink guard all return or raise
+            # outside serve()'s try block. The singleton lock is already held by
+            # this point, so a daemon that lingers here holds a lock no second
+            # instance can take while answering nothing — the only way out is a
+            # SIGKILL. Better to exit and let a supervisor try again.
+            if not ipc_thread.is_alive():
+                ipc_died = True
+                log.error("IPC server died — no control socket, cannot accept commands")
+                break
+
             now = time.monotonic()
             elapsed = now - prev_time
             time.sleep(max(0, target_interval - elapsed))
@@ -707,4 +778,8 @@ def run() -> None:
         # Exit non-zero so a supervisor (e.g. systemd Restart=on-failure)
         # restarts the daemon instead of leaving a zombie that answers
         # ping but can never pan again.
+        raise SystemExit(1)
+    if ipc_died:
+        # Same reasoning: staying alive here would keep the singleton lock while
+        # serving no commands, blocking every later start.
         raise SystemExit(1)

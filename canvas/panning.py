@@ -12,6 +12,7 @@ Architecture:
 """
 
 import logging
+import math
 import threading
 import time
 from dataclasses import dataclass
@@ -390,6 +391,17 @@ class EdgeScrollState:
             if dist_bottom < rd and win_dy >= 0:
                 progress = min((rd - dist_bottom) / rd, 1.0)
                 tick_dy += self.speed * progress
+
+            # Normalize the diagonal. The four branches above are independent, so
+            # a corner accumulates two full-speed contributions and the camera
+            # would pan √2 faster than a single edge. max_speed cannot catch it:
+            # it clamps each axis separately and cannot see the magnitude. The
+            # same fix driftwm applies in edge_pan_velocity.
+            magnitude = math.hypot(tick_dx, tick_dy)
+            if magnitude > self.speed > 0:
+                scale = self.speed / magnitude
+                tick_dx *= scale
+                tick_dy *= scale
 
             # Replace, rather than accumulate, the pending camera delta. If the
             # drag reverses before the main loop consumes it, stale motion from

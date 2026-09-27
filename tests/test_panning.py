@@ -1,3 +1,5 @@
+import math
+
 from canvas.panning import EdgeScrollParams, EdgeScrollState, PanningState
 
 
@@ -293,7 +295,13 @@ def test_top_bottom_edges():
     assert dy_bot < 0  # camera down → windows up
 
 
-def test_corner_full_speed_both_axes():
+def test_corner_does_not_pan_faster_than_single_edge():
+    """A corner adds two full-speed contributions, so the vector must be
+    normalized back to `speed`.
+
+    Without this the camera moves √2 faster diagonally, and `max_speed` cannot
+    catch it: it clamps each axis on its own and never sees the magnitude.
+    """
     es = EdgeScrollState(ramp_distance=50, speed=20.0, grab_dead_zone=5)
     es.set_monitor_rect(0, 0, 1920, 1080)
     _start_edge(es, 700, 400)
@@ -303,8 +311,25 @@ def test_corner_full_speed_both_axes():
         "0xabc", 1700, 850, 500, 300, 1700 + 250, 850 + 150
     )  # right+bottom far past
     dx, dy = es.consume_delta()
-    assert dx == -20
-    assert dy == -20
+
+    expected = round(20.0 / (2**0.5))  # 20 spread over two axes
+    assert abs(dx) == expected
+    assert abs(dy) == expected
+    assert math.hypot(dx, dy) <= 20  # magnitude capped, not each axis
+
+
+def test_single_edge_still_reaches_full_speed():
+    """Normalization must not slow down a plain cardinal push."""
+    es = EdgeScrollState(ramp_distance=50, speed=20.0, grab_dead_zone=5)
+    es.set_monitor_rect(0, 0, 1920, 1080)
+    _start_edge(es, 700, 400)
+    es.update_geometry("0xabc", 750, 450, 500, 300, 750 + 250, 450 + 150)
+
+    es.update_geometry("0xabc", 1900, 450, 500, 300, 1900 + 250, 450)
+    dx, dy = es.consume_delta()
+
+    assert abs(dx) == 20
+    assert dy == 0
 
 
 def test_address_mismatch_stops_session():

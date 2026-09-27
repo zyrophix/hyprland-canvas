@@ -21,6 +21,10 @@ navigation:
 invert:
   enabled: true               # true = grab canvas (intuitive), false = follow cursor
 
+window_pan_excludes: []        # windows left in place while the canvas pans,
+                               # matched as a substring of the window class.
+                               # Fullscreen windows are always excluded.
+
 edge_scroll:
   enabled: true                # auto-pan when dragged window goes past screen edge
   ramp_distance: 50              # px of overflow to reach max speed
