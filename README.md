@@ -229,10 +229,16 @@ result independent of the order the windows were floated in.
 
 Windows that were already floating when canvas was enabled are not touched at
 all. On `canvas-toggle` the windows recorded at enable time are tiled again,
-while windows that were already floating survive. If you pan while canvas is
-on, those positions are remembered and restored on the next enable — geometry
-the compositor produced on its own is not treated as your choice and is never
-remembered.
+while windows that were already floating survive.
+
+Where the windows end up afterwards is up to your layout, not to the order they
+were toggled in: dwindle puts each window back as a split at whatever node is
+under the cursor when it becomes tiled. Switching canvas off can therefore
+reshuffle the grid — particularly the windows that are the same size as each
+other, since nothing distinguishes them. Your canvas arrangement is unaffected;
+only the tiled grid moves. Setting `dwindle: use_active_for_splits = true`
+makes the layout split at the focused window instead of the cursor, which makes
+it reproducible.
 
 ### Sizing windows that open during canvas
 

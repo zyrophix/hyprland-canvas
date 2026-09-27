@@ -118,6 +118,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   what a daemon too old to know the command replies. Updating the CLI while an
   older daemon still ran made a script believe a command had been applied when
   the daemon had never heard of it.
+- A `canvas.spawn` match pattern that is not a valid regex is now a hard
+  failure at registration instead of a logged warning. The daemon used to
+  reimplement the match to size windows that were already open, and skipped
+  patterns it could not compile; with that gone the pattern reaches the
+  compositor verbatim, which rejects the rule, undoes the batch and fails the
+  toggle. A typo in a matcher is now loud rather than a rule that quietly
+  matches nothing.
 
 ## [1.5.0] — 2026-09-27
 
