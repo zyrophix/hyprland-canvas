@@ -50,6 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   camera stayed dead until the window was released and grabbed again. The
   pointer check now applies only until the drag is confirmed, after which the
   window's own motion is the ground truth.
+- Arch packaging installs a single wheel. `makepkg` reuses its checkout, so a
+  wheel left by an earlier version could still be in `dist/` and the glob
+  installed two copies of the same files. `__pycache__` is no longer packaged.
 
 ### Changed
 
