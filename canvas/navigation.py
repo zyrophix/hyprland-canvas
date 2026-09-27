@@ -710,8 +710,17 @@ class Navigator:
         }
 
     def _arrived_addresses(self, workspace_id: int) -> set[str]:
-        """Floating windows on the workspace that were not floating at ON."""
-        before = self._pre_floating.get(workspace_id, set())
+        """Floating windows on the workspace that were not floating at ON.
+
+        A workspace with no pre_floating entry is one whose state was written by
+        a format that has no such field, so nothing is known about what was
+        already floating. Reporting every floating window as arrived there made
+        the first canvas-toggle after an upgrade tile the user's own dialogs and
+        picture-in-picture into the layout. Not knowing is not a reason to act.
+        """
+        if workspace_id not in self._pre_floating:
+            return set()
+        before = self._pre_floating[workspace_id]
         floating = self._get_floating_windows(workspace_id)
         if floating is None:
             return set()

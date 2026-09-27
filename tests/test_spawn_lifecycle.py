@@ -463,3 +463,76 @@ def test_state_migration_defaults_new_sections(version, tmp_path):
     assert loaded[1]["spawn_rules"] == []
     assert FORMAT_VERSION == 4
     assert version in (2, 3)
+
+
+def test_a_workspace_with_no_pre_floating_record_tiles_nothing_back():
+    """An upgrade from a format without pre_floating must not swallow windows.
+
+    pre_floating is only written by format v4. A v2 or v3 state file records
+    nothing about what was floating before canvas, so there is no way to tell
+    the user's own dialog from a window a spawn rule brought in. Treating
+    everything as arrived tiled the dialog into the layout on the first toggle
+    off after the upgrade.
+    """
+    ipc = _ipc_with(
+        [
+            _window("0x1", x=17, y=61, w=935, h=493),
+            _window("0x2", x=900, y=300, w=400, h=300, floating=True),
+        ]
+    )
+    legacy = {
+        1: {
+            "active": True,
+            "tiled": {"0x1": {"at": [0, 0], "size": [935, 493]}},
+            "floating": {},
+        }
+    }
+    with (
+        patch("canvas.navigation.toggle_state.load", return_value=legacy),
+        patch("canvas.navigation.toggle_state.save"),
+    ):
+        nav = Navigator(
+            ipc=ipc, protected_apps=[], cooldown=0.0, auto_float=True, spawn_cfg=SPAWN_CFG
+        )
+        with patch.object(nav, "_get_active_workspace_id", return_value=1):
+            assert nav.canvas_toggle_all() == "CANVAS_OFF"
+
+    # Nothing was known about 0x2 before canvas, so it must not be claimed as
+    # arrived and handed to the layout to absorb.
+    assert "0x2" not in nav._arrived_addresses(1)
+
+
+def test_a_workspace_with_a_recorded_empty_pre_floating_still_tiles_arrivals():
+    """The empty case is not the unknown case.
+
+    A v4 file with pre_floating: [] means nothing was floating when canvas came
+    on, so every floating window now is one a spawn rule brought in and does
+    belong in the layout.
+    """
+    ipc = _ipc_with(
+        [
+            _window("0x1", x=17, y=61, w=935, h=493),
+            _window("0x2", x=900, y=300, w=400, h=300, floating=True),
+        ]
+    )
+    recorded = {
+        1: {
+            "active": True,
+            "tiled": {"0x1": {"at": [0, 0], "size": [935, 493]}},
+            "floating": {},
+            "pre_floating": [],
+            "spawn_rules": ["canvas-spawn-ws1-default"],
+        }
+    }
+    with (
+        patch("canvas.navigation.toggle_state.load", return_value=recorded),
+        patch("canvas.navigation.toggle_state.save"),
+    ):
+        nav = Navigator(
+            ipc=ipc, protected_apps=[], cooldown=0.0, auto_float=True, spawn_cfg=SPAWN_CFG
+        )
+        # Checked before the toggle, which clears the record it is about to use.
+        assert "0x2" in nav._arrived_addresses(1)
+
+        with patch.object(nav, "_get_active_workspace_id", return_value=1):
+            assert nav.canvas_toggle_all() == "CANVAS_OFF"
