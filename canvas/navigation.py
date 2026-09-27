@@ -307,12 +307,17 @@ class Navigator:
         if workspace_id in self._canvas_mode_workspaces:
             snapshot = self._canvas_mode_workspaces[workspace_id]
             captured: dict[str, dict[str, list[int]]] = {}
-            # Remember only where the user put windows by panning. Everything
-            # else is restored from the tiled snapshot on the next ON, which is
-            # the box the window actually had.
-            panned = set(self._panned.get(workspace_id, set())) & set(snapshot)
-            if self._preserve_geometry and panned:
-                snapshot_result = self._snapshot_floating_geos(workspace_id, panned)
+            # Capture every window in the snapshot, on every OFF, not just the
+            # ones a pan moved. Narrowing this to panned windows left
+            # _floating_geos untouched whenever a toggle happened without a pan,
+            # and since neither branch below clears it when preserve_geometry is
+            # on, the remembered positions went stale: they described a canvas
+            # from some earlier session and the next ON applied them, scattering
+            # the workspace. Refreshing from the live positions on every OFF is
+            # what keeps them from ever going stale, and it is what
+            # preserve_geometry meant before the narrowing.
+            if self._preserve_geometry and snapshot:
+                snapshot_result = self._snapshot_floating_geos(workspace_id, set(snapshot.keys()))
                 if snapshot_result is None:
                     return "ERROR:SNAPSHOT_FAILED"
                 captured = snapshot_result
@@ -339,9 +344,17 @@ class Navigator:
             next_modes = dict(self._canvas_mode_workspaces)
             next_modes.pop(workspace_id, None)
             next_floating = dict(self._floating_geos)
-            if self._preserve_geometry and captured:
-                next_floating[workspace_id] = captured
-            elif not self._preserve_geometry:
+            if self._preserve_geometry:
+                if captured:
+                    next_floating[workspace_id] = captured
+                else:
+                    # Nothing to capture means nothing to remember. Keeping the
+                    # old entry is the same leak through the other door: an ON
+                    # that found no tiled window to snapshot would still hand
+                    # its stale positions to the next ON, which by then does
+                    # have a snapshot to apply them to.
+                    next_floating.pop(workspace_id, None)
+            else:
                 next_floating.pop(workspace_id, None)
             next_pre = dict(self._pre_floating)
             next_pre.pop(workspace_id, None)
@@ -723,41 +736,43 @@ class Navigator:
         also depends on the order. Setting the geometry here instead makes the
         outcome deterministic and independent of both.
 
-        Priority per address: a position the user panned to, then the
-        configured spawn size, then the tiled box the window just had.
+        A window that is in the remembered set is restored from it whole, since
+        that entry is one real state of the window. Every other window gets the
+        tiled box it just had; the configured spawn size is deliberately not
+        consulted — see below.
         """
         if not snapshot:
             return True
 
         stored = self._floating_geos.get(workspace_id, {}) if self._preserve_geometry else {}
-        props: dict[str, dict[str, str]] = {}
-        sizes: dict[str, tuple[int, int]] = {}
-        if self._auto_float and workarea is not None:
-            need_size = [a for a in snapshot if a not in stored]
-            if need_size:
-                props = self._client_class_title(workspace_id, set(need_size))
-                for addr in need_size:
-                    try:
-                        spec = spawnrules.resolve_spec(self._spawn_cfg, props.get(addr, {}))
-                        sizes[addr] = spawnrules.parse_size(spec, workarea)
-                    except spawnrules.SpawnRuleError as e:
-                        log.warning("spawn size for %s skipped: %s", addr, e)
 
         targets: dict[str, dict[str, list[int]]] = {}
         for addr in sorted(snapshot):
             if not _VALID_ADDR.match(addr):
                 continue
             if addr in stored:
-                targets[addr] = stored[addr]
-                continue
-            if addr in sizes:
-                _w, _h = sizes[addr]
+                # The remembered box verbatim: it was captured on the last OFF
+                # from where this window actually was, so position and size are
+                # one real state rather than two snapshots of different moments.
+                # A state file migrated from before 1.1 keeps window addresses
+                # and drops their geometry, so an entry can carry neither; that
+                # falls back to the tiled box instead of failing the toggle.
                 box = snapshot[addr]
-                targets[addr] = {
-                    "at": list(box.get("at", [0, 0])),
-                    "size": [_w, _h],
-                }
+                stored_box = stored[addr]
+                at = list(stored_box.get("at") or box.get("at", [0, 0]))
+                size = list(stored_box.get("size") or box.get("size", [0, 0]))
+                if at == [0, 0] and size == [0, 0]:
+                    continue
+                targets[addr] = {"at": at, "size": size}
                 continue
+            # No spawn-size branch here on purpose. A window that was already
+            # open holds a box the layout gave it; swapping in the spawn size
+            # reshaped it for no reason — the spawn rules exist so a window
+            # *arriving* mid-canvas does not land on top of the others, and the
+            # compositor applies that at map time. Reshaping the ones already
+            # here is what made canvas-toggle look like it was destroying the
+            # layout, which is the exact thing this function was written to
+            # prevent.
             box = snapshot[addr]
             at = list(box.get("at", [0, 0]))
             size = list(box.get("size", [0, 0]))
@@ -773,33 +788,8 @@ class Navigator:
                 ws=workspace_id,
                 count=len(targets),
                 from_stored=sorted(a for a in targets if a in stored),
-                spawn_sized=sorted(a for a in targets if a in sizes),
             )
         return self._apply_floating_geos(workspace_id, targets)
-
-    def _client_class_title(
-        self, workspace_id: int, addresses: set[str]
-    ) -> dict[str, dict[str, str]]:
-        """Class and title per address, so spawn sizes can be matched locally."""
-        try:
-            resp = self._ipc.send("j/clients")
-            clients: list[dict[str, Any]] = json.loads(resp)
-        except Exception as e:
-            log.warning("spawn props lookup failed: %s", e)
-            return {}
-        out: dict[str, dict[str, str]] = {}
-        for w in clients:
-            addr = w.get("address")
-            if not isinstance(addr, str) or addr not in addresses:
-                continue
-            wsw = w.get("workspace")
-            if not isinstance(wsw, dict) or wsw.get("id") != workspace_id:
-                continue
-            out[addr] = {
-                "class": str(w.get("class", "")),
-                "title": str(w.get("title", "")),
-            }
-        return out
 
     def _restore_floating_geos(self, workspace_id: int) -> bool:
         """Move newly floated snapshot windows to stored floating geometry."""

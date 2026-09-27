@@ -321,7 +321,14 @@ def test_canvas_toggle_off_captures_panned_geos_only():
 
 
 def test_canvas_toggle_on_restores_floating_geos():
-    """ON moves newly floated windows back to stored floating positions."""
+    """ON restores a remembered window whole — position and size together.
+
+    The remembered pair is one real state of that window, captured on the last
+    OFF from where it actually was. Reading the position from there and the size
+    from the tiled box mixed two snapshots of different moments: the position
+    held still while the size followed a layout that re-sorts on every tile, so
+    a window changed size on each ON and which one changed depended on focus.
+    """
     tiled = [
         _make_window("kitty", "0x1", 0, 0, 100, 100, floating=False),
     ]
@@ -349,6 +356,7 @@ def test_canvas_toggle_on_restores_floating_geos():
         restore_lua = ipc.eval_lua.call_args_list[1][0][0]
         assert "at={500,600}" in restore_lua
         assert "size={400,300}" in restore_lua
+        assert "size={100,100}" not in restore_lua
         assert "hl.dsp.window.move" in restore_lua
         assert "hl.dsp.window.resize" in restore_lua
         assert "x = g.size[1], y = g.size[2]" in restore_lua

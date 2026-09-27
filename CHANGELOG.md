@@ -46,6 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that were already open: no animation, no shadow, no dimming for as long as
   canvas was on. The rule now says where a window goes and nothing about how
   it looks.
+- `canvas-toggle` no longer resizes windows that were already open. Spawn
+  sizing was applied to them as well, so turning canvas on with `auto_float`
+  reshaped every window on the workspace to the spawn size — four terminals in
+  a 2x2 grid all became the same box. Spawn sizing exists so a window opening
+  *during* canvas does not land on the others, and the compositor applies it at
+  map time; windows that are already on screen have not earned it. Windows you
+  panned earlier still keep their remembered box.
 - A window that arrived floating during canvas is now tiled again on
   `canvas-toggle` even when the snapshot was empty. Canvas turned on with
   nothing tiled, a window spawned into it, and toggling off left that window
@@ -54,6 +61,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still cleared, so the toggle looked like it had done nothing.
 - `canvas.auto_float` no longer shapes windows outside the canvas workspaces it
   was enabled for. Every rule was registered with a `class = ".*"` catch-all and
+- The geometry remembered for the next `canvas-toggle` is now refreshed on
+  every toggle off, not only when a pan moved a window. With nothing panned
+  there was no capture and the old entry was never cleared, so it survived
+  every toggle and the next ON applied positions from an earlier session.
+- A state file from before 1.1 no longer stops canvas from turning on. Such a
+  file keeps window addresses and drops their geometry, and applying such an
+  entry verbatim failed the whole toggle. It now falls back to the tiled box.
   no workspace condition — the workspace id appeared only in the rule's name,
   which is bookkeeping for retracting it later. So a rule registered for one
   canvas workspace floated and centred every window opened in every workspace,
