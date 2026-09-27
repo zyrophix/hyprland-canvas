@@ -1,6 +1,6 @@
 # Architecture
 
-```
+```text
 canvasd (daemon)
 ├── hypr.py         Direct Unix socket IPC to Hyprland
 ├── panning.py      Cursor polling, pan state, edge-scroll state

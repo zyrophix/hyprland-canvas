@@ -19,7 +19,7 @@ Hyprland has no built-in infinite desktop. This daemon provides one by communica
 - Runs as an unprivileged user daemon — no special permissions needed
 - Has a **Unix socket IPC** for keybind-driven commands (navigate, center, toggle, invert)
 
-Honest limits: no render-level zoom (windows move, nothing scales), no touchpad gestures, no resize/move of tiled windows — pan, navigate, center, toggle, nothing else.
+Honest limits: no render-level zoom (windows move, nothing scales), no touchpad gestures, no resize/move of tiled windows — pan, navigate, center, toggle and size, nothing else.
 
 ## Features
 
@@ -29,7 +29,8 @@ Honest limits: no render-level zoom (windows move, nothing scales), no touchpad 
 | Edge-scroll | SUPER+LMB | Drag a floating window toward the screen edge — camera follows (engages only for a confirmed drag of the window under the cursor) |
 | Navigate | SUPER+SHIFT+Arrows | Spatial jump to nearest window in direction (up/down/left/right), auto-pan to center |
 | Center under cursor | SUPER+MMB | Center the canvas on the topmost floating window under the mouse cursor without changing focus |
-| Canvas toggle | SUPER+SHIFT+C | Toggle all windows on workspace to/from floating |
+| Canvas toggle | SUPER+SHIFT+C | Toggle all windows on workspace to/from floating, keeping each window exactly where and how big it was |
+| Window sizing | on canvas enable | Give windows a size as they enter the canvas — one default plus per-`class`/`title` rules, opt-in (see [Configuration](#configuration)) |
 | Toggle single | SUPER+SHIFT+V | Toggle focused window floating ↔ tiled |
 | Invert | SUPER+SHIFT+G | Invert pan direction |
 
@@ -224,17 +225,21 @@ patterns as a *full* match: `class: btop` matches only the exact class `btop`.
 Rules are checked in order and the first match wins; everything else gets
 `default`.
 
-Only windows opened *after* canvas is enabled are affected by the rules —
-windows already open are only repositioned, never resized by the rules.
+Windows that were already floating when canvas was enabled keep their size —
+they are not canvas windows, so nothing is done to them. Tiled windows that
+were open at enable time get the same size as a newly opened one, unless you
+panned them earlier, in which case their remembered position wins.
 
 ## Repo overview
 
-- `canvas/` — daemon source: `hypr.py` (IPC), `panning.py`,
-  `navigation.py`, `spawnrules.py` (canvas spawn sizing), `ipc.py` (ctl server),
-  `config.py`, `toggle_state.py`, `daemon.py`
+- `canvas/` — daemon source: `hypr.py` (IPC), `panning.py` (cursor polling, pan
+  and edge-scroll state), `navigation.py`, `spawnrules.py` (canvas spawn
+  sizing), `toggle_state.py`, `ipc.py` (ctl server), `config.py`,
+  `debug.py` (tracing), `daemon.py`
 - `tests/` — mocked pytest suite, no live compositor needed (`uv run pytest`)
-- `docs/` — [architecture.md](docs/architecture.md): process model, IPC, config load
-- `docs/` — [debugging.md](docs/debugging.md): logs, tracing, common failures
+- `docs/` — [architecture.md](docs/architecture.md): process model, IPC,
+  geometry on toggle, spawn rules; [debugging.md](docs/debugging.md): logs,
+  tracing, common failures
 - `config.yml` — ready-to-copy config template
 - `pyproject.toml` — package metadata, pytest/ruff/mypy config
 
