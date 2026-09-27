@@ -14,12 +14,17 @@ install="hyprland-canvas.install"
 
 build() {
   cd "$pkgname"
+  # The checkout is reused between makepkg runs, so a wheel from a previous
+  # version can still be sitting in dist/. "dist/*.whl" would then install two
+  # versions of the same files. Start from an empty dist.
+  rm -rf dist
   python -m build --wheel --no-isolation
 }
 
 package() {
   cd "$pkgname"
   python -m installer --destdir="$pkgdir" --prefix=/usr dist/*.whl
+  find "$pkgdir" -name '__pycache__' -type d -exec rm -rf {} +
   install -Dm644 config.yml "$pkgdir/usr/share/hyprland-canvas/config.yml"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
