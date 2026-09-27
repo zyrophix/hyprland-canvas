@@ -194,8 +194,10 @@ window_pan_excludes: []        # windows left in place while the canvas pans,
                                # matched as a substring of the window class.
                                # Fullscreen windows are always excluded.
 canvas:
-  preserve_geometry: true     # remember where you panned windows to, and restore
-                               # them on the next ON; windows you did not move go
+  preserve_geometry: true     # remember where each window was when canvas was
+                               # last switched off, and restore that whole box on
+                               # the next ON. Recorded on every toggle off, so it
+                               # cannot go stale. Windows you did not move come
                                # back to the exact box they had when tiled
   auto_float: false           # shape windows opened while canvas is ON (see below)
   spawn:
@@ -251,10 +253,11 @@ Hyprland's own `windowrule` — the compositor applies matching rules in
 registration order and the last write wins. So list broad rules first and
 narrow ones last; anything that matches no rule gets `default`.
 
-Windows that were already floating when canvas was enabled keep their size —
-they are not canvas windows, so nothing is done to them. Tiled windows that
-were open at enable time get the same size as a newly opened one, unless you
-panned them earlier, in which case their remembered position wins.
+Windows that were already open when canvas was enabled keep the box the layout
+gave them — spawn sizing only applies to windows that open *while* canvas is
+on, which is what keeps them from landing on top of each other. The one
+exception: if you panned a window earlier, its remembered position wins, since
+that was a deliberate choice rather than something the layout picked.
 
 ## Repo overview
 
