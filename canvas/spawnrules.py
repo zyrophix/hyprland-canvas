@@ -347,7 +347,12 @@ def resolve_workareas(ipc: HyprIPC) -> dict[int, Workarea]:
             continue
         reserved = monitor.get("reserved") or [0, 0, 0, 0]
         try:
-            top, right, bottom, left = (int(v) for v in list(reserved)[:4])
+            # Order is left, top, right, bottom — src/ipc/s1/Commands.cpp:287
+            # serialises m_reservedArea in exactly that sequence. Reading it
+            # rotated puts a top bar into the width, so a 44px bar produced a
+            # workarea 44px too narrow and 44px too tall, and every percent
+            # size and every computed centre came out wrong.
+            left, top, right, bottom = (int(v) for v in list(reserved)[:4])
         except (TypeError, ValueError):
             top = right = bottom = left = 0
         by_monitor[mid] = (

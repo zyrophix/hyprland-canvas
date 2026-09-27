@@ -207,7 +207,7 @@ def test_resolve_workareas_maps_workspace_to_its_monitor():
                         "y": 0,
                         "width": 1920,
                         "height": 1080,
-                        "reserved": [0, 0, 44, 0],
+                        "reserved": [0, 44, 0, 0],
                     },
                     {
                         "id": 1,
@@ -228,7 +228,8 @@ def test_resolve_workareas_maps_workspace_to_its_monitor():
         }
     )
 
-    assert resolve_workareas(ipc) == {1: (0, 0, 1920, 1036), 2: (1920, 0, 2560, 1440)}
+    # 44px bar at the top: the workarea starts below it, and keeps full width.
+    assert resolve_workareas(ipc) == {1: (0, 44, 1920, 1036), 2: (1920, 0, 2560, 1440)}
 
 
 def test_resolve_workareas_subtracts_reserved_on_all_sides():
@@ -250,7 +251,8 @@ def test_resolve_workareas_subtracts_reserved_on_all_sides():
         }
     )
 
-    assert resolve_workareas(ipc) == {1: (40, 10, 940, 760)}
+    # reserved is serialised left, top, right, bottom
+    assert resolve_workareas(ipc) == {1: (10, 20, 960, 740)}
 
 
 def test_resolve_workareas_skips_workspace_without_monitor():
@@ -568,3 +570,38 @@ def test_match_must_be_a_mapping():
     with pytest.raises(SpawnRuleError) as exc:
         build_rules(cfg, 1, WORKAREA)
     assert "must be a non-empty mapping" in str(exc.value)
+
+
+def test_reserved_order_is_left_top_right_bottom():
+    """A top bar must shrink the height and shift y, not narrow the width.
+
+    Hyprland serialises m_reservedArea as left, top, right, bottom
+    (src/ipc/s1/Commands.cpp:287-288). Reading it rotated put a top bar into
+    the width: a 44px bar yielded a workarea 44px narrower and 44px taller,
+    so every percent size and every computed centre was wrong. It only shows
+    up with a non-zero reserved area, which is why a barless setup never
+    noticed.
+    """
+    ipc = _ipc(
+        {
+            "j/monitors": json.dumps(
+                [
+                    {
+                        "id": 0,
+                        "x": 0,
+                        "y": 0,
+                        "width": 1920,
+                        "height": 1080,
+                        "reserved": [0, 44, 0, 0],
+                    }
+                ]
+            ),
+            "j/workspaces": json.dumps([{"id": 1, "monitorID": 0}]),
+        }
+    )
+    assert resolve_workareas(ipc) == {1: (0, 44, 1920, 1036)}
+
+
+def test_percent_size_uses_the_real_workarea():
+    """The end-to-end consequence: 30%x40% of a 1920x1036 workarea."""
+    assert parse_size("30%x40%", (0, 44, 1920, 1036)) == (576, 414)

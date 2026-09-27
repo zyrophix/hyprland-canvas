@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `canvas.spawn` percent sizes and computed window positions were wrong on any
+  setup with a panel. Hyprland serialises a monitor's `reserved` as
+  left, top, right, bottom; it was read one position out of order, so a 44px
+  top bar produced a workarea 44px narrower and 44px taller. On a 1920x1080
+  display with a 44px bar that turned `30%x40%` into 562x432 instead of
+  576x414, and put the computed workarea centre at (938, 540) rather than
+  (960, 562). The bug is invisible without a reserved area.
 - A window that arrived floating during canvas is now tiled again on
   `canvas-toggle` even when the snapshot was empty. Canvas turned on with
   nothing tiled, a window spawned into it, and toggling off left that window
