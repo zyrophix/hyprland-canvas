@@ -51,12 +51,10 @@ class DaemonState:
         self.edge_scroll_workspace: int | None = None
         # Windows kept out of edge-scroll pan, resolved once at EDGE_START.
         self.edge_scroll_excluded: set[str] = set()
-        # Workspace already reported as panned, so a long pan records once
-        # instead of on every frame.
-        # Serializes compositor mutations from the IPC thread with main-loop
-        # pan/edge moves. State objects retain their own fine-grained locks.
         # Addresses to leave alone when panning, from window_pan_excludes.
         self._pan_exclude_apps: list[str] = []
+        # Serializes compositor mutations from the IPC thread with main-loop
+        # pan/edge moves. State objects retain their own fine-grained locks.
         self._operation_lock = threading.RLock()
 
     def apply_config(self, cfg: dict[str, Any]) -> None:

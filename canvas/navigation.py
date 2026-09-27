@@ -54,9 +54,6 @@ class Navigator:
         # Reapplied on the next ON so the canvas comes back where it was.
         # workspace id -> addresses already floating at ON. Windows floating at
         # OFF but absent from here arrived during canvas and belong to it.
-        # workspace id -> addresses the user actually moved while canvas was
-        # on. Only these are worth remembering: geometry Hyprland produced by
-        # itself when a window became floating is not a user choice.
         # workspace id -> spawn rule names registered in the compositor, kept
         # so rules left behind by a crash can be disabled again at startup.
         self._canvas_mode_workspaces: dict[int, dict[str, dict[str, list[int]]]] = {}
@@ -257,8 +254,7 @@ class Navigator:
         # Pan the monitor the target actually lives on. Resolving the centre
         # without coordinates falls back to the focused monitor, so a target on
         # a second monitor was dragged onto the first one to satisfy a
-        # navigation command. Falls back to the focused monitor when the target
-        # sits outside every output.
+        # navigation command.
         target_at = next(
             (w.get("at") for w in floating_updated if w.get("address") == target_addr),
             None,
@@ -307,14 +303,8 @@ class Navigator:
             snapshot = self._canvas_mode_workspaces[workspace_id]
             captured: dict[str, dict[str, list[int]]] = {}
             # Capture every window in the snapshot, on every OFF, not just the
-            # ones a pan moved. Narrowing this to panned windows left
-            # _floating_geos untouched whenever a toggle happened without a pan,
-            # and since neither branch below clears it when preserve_geometry is
-            # on, the remembered positions went stale: they described a canvas
-            # from some earlier session and the next ON applied them, scattering
-            # the workspace. Refreshing from the live positions on every OFF is
-            # what keeps them from ever going stale, and it is what
-            # preserve_geometry meant before the narrowing.
+            # ones a pan moved: capturing a subset is what let a remembered
+            # position go stale and describe a canvas from an earlier session.
             if self._preserve_geometry and snapshot:
                 snapshot_result = self._snapshot_floating_geos(workspace_id, set(snapshot.keys()))
                 if snapshot_result is None:
@@ -323,14 +313,13 @@ class Navigator:
 
             # Windows that arrived as floating during canvas (spawn rules make
             # them float at map time) are canvas members too, so they are tiled
-            # back. Addresses already in the snapshot keep their recorded
-            # geometry — _toggle_order reads it to restore the original layout.
+            # back. Addresses already in the snapshot are tiled at the box
+            # recorded for them; where they land is the layout's business.
             #
-            # Deliberately not gated on a non-empty snapshot: an empty
-            # snapshot is exactly the case where this matters most — canvas
-            # turned on with nothing tiled, then a window spawned floating into
-            # it. Gating here left that window floating and centred forever,
-            # because nothing else in the OFF path tiles it.
+            # Deliberately not gated on a non-empty snapshot: an empty one is
+            # exactly the case where this matters most — canvas on with nothing
+            # tiled, then a window spawned floating into it. Gating here left
+            # that window floating and centred forever.
             tile_target = snapshot
             if self._auto_float:
                 arrived = self._arrived_addresses(workspace_id)
@@ -348,10 +337,8 @@ class Navigator:
                     next_floating[workspace_id] = captured
                 else:
                     # Nothing to capture means nothing to remember. Keeping the
-                    # old entry is the same leak through the other door: an ON
-                    # that found no tiled window to snapshot would still hand
-                    # its stale positions to the next ON, which by then does
-                    # have a snapshot to apply them to.
+                    # old entry is the same staleness through the other door: a
+                    # later ON that does have a snapshot would apply it.
                     next_floating.pop(workspace_id, None)
             else:
                 next_floating.pop(workspace_id, None)
@@ -792,12 +779,11 @@ class Navigator:
             if not _VALID_ADDR.match(addr):
                 continue
             if addr in stored:
-                # The remembered box verbatim: it was captured on the last OFF
-                # from where this window actually was, so position and size are
-                # one real state rather than two snapshots of different moments.
-                # A state file migrated from before 1.1 keeps window addresses
-                # and drops their geometry, so an entry can carry neither; that
-                # falls back to the tiled box instead of failing the toggle.
+                # The remembered box verbatim: captured on the last OFF from
+                # where this window actually was, so position and size are one
+                # real state. An entry carrying neither — a state file migrated
+                # from before 1.1 keeps addresses and drops geometry — falls
+                # back to the tiled box instead of failing the toggle.
                 box = snapshot[addr]
                 stored_box = stored[addr]
                 at = list(stored_box.get("at") or box.get("at", [0, 0]))
@@ -807,13 +793,9 @@ class Navigator:
                 targets[addr] = {"at": at, "size": size}
                 continue
             # No spawn-size branch here on purpose. A window that was already
-            # open holds a box the layout gave it; swapping in the spawn size
-            # reshaped it for no reason — the spawn rules exist so a window
-            # *arriving* mid-canvas does not land on top of the others, and the
-            # compositor applies that at map time. Reshaping the ones already
-            # here is what made canvas-toggle look like it was destroying the
-            # layout, which is the exact thing this function was written to
-            # prevent.
+            # open holds a box the layout gave it; the spawn rules exist so a
+            # window *arriving* mid-canvas does not land on top of the others,
+            # and the compositor applies that at map time.
             box = snapshot[addr]
             at = list(box.get("at", [0, 0]))
             size = list(box.get("size", [0, 0]))
@@ -916,9 +898,16 @@ class Navigator:
     def _toggle_order(snapshot: dict[str, dict[str, list[int]]]) -> list[str]:
         """Order snapshot addresses for tiling: row-major by saved position.
 
-        The compositor rebuilds the tiled layout in toggle order, so feeding
-        top-to-bottom, left-to-right approximates the original grid. Entries
-        without usable coordinates fall back to plain address order.
+        This does not decide where windows land. dwindle inserts each window
+        that becomes tiled as a split at the node under the mouse cursor —
+        DwindleAlgorithm.cpp reads the cursor because setFloating passes no
+        focal point — so with the default dwindle:use_active_for_splits the
+        order of these toggles is not what the grid looks like afterwards.
+
+        Feeding a stable order still matters: it makes the sequence itself
+        reproducible instead of dependent on the snapshot's iteration order,
+        which is what let two same-sized windows trade slots between cycles.
+        Entries without usable coordinates fall back to plain address order.
         """
         positioned: list[tuple[int, int, str]] = []
         plain: list[str] = []
