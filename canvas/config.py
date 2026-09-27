@@ -189,10 +189,14 @@ def _validate_spawn(spawn: object) -> list[str]:
                         f"canvas.spawn.rules[{index}].match has unknown property {key!r}; "
                         f"expected one of {', '.join(sorted(MATCH_KEYS))}"
                     )
-                elif not isinstance(match[key], (str, bool, int, float)):
+                elif not isinstance(match[key], (str, bool)) and not _is_num(match[key]):
+                    # _is_num and not the plain isinstance: repr(nan) and repr(inf)
+                    # are `nan` and `inf`, which are not Lua literals. They
+                    # compile as reads of undefined globals, so the rule would
+                    # register with a nil match instead of being refused.
                     errors.append(
                         f"canvas.spawn.rules[{index}].match.{key} must be a string, "
-                        f"bool or number, got {match[key]!r}"
+                        f"bool or finite number, got {match[key]!r}"
                     )
         spec_problem = size_spec_error(entry.get("size"))
         if spec_problem:

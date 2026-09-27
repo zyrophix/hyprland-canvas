@@ -407,7 +407,7 @@ def test_validate_rejects_non_scalar_match_value():
             }
         )
     )
-    assert any("must be a string, bool or number" in p for p in problems)
+    assert any("must be a string, bool or finite number" in p for p in problems)
 
 
 def test_validate_rejects_bad_rule_size():
@@ -428,3 +428,30 @@ def test_bundled_config_template_is_valid():
     cfg = load("/nonexistent/path/config.yml", skip_user=True)
     assert validate(cfg) == []
     assert cfg["canvas"]["spawn"]["rules"] == []
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_spawn_match_rejects_non_finite_numbers(value):
+    """nan and inf are not Lua literals.
+
+    repr(nan) is `nan`, which in Lua is a read of an undefined global — nil. The
+    rule would then register with a nil match and match nothing, silently,
+    instead of being refused. Every other numeric config field already goes
+    through _is_num, which is what excludes these.
+    """
+    cfg = {
+        "speed": 1.0,
+        "canvas": {
+            "preserve_geometry": True,
+            "auto_float": True,
+            "spawn": {
+                "center": True,
+                "default": "30%x40%",
+                "rules": [{"match": {"class": value}, "size": "910x930"}],
+            },
+        },
+    }
+
+    problems = validate(cfg)
+
+    assert any("must be a string, bool or finite number" in p for p in problems), problems
