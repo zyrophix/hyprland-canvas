@@ -58,7 +58,15 @@ MATCH_KEYS = frozenset(
 # "910x930" is pixels, "30%x40%" is a fraction of the workarea. The unit
 # follows each number, and the trailing backreference forces both to agree, so
 # a mixed spec like "910x40%" cannot be written.
-_SIZE_RE = re.compile(r"^(\d+(?:\.\d+)?)(%?)x(\d+(?:\.\d+)?)(\2)$")
+#
+# The digit counts are bounded. Nothing real comes close to ten digits — the
+# widest display anyone has is seven — and an unbounded spec reaches int() with
+# whatever length it was handed: CPython refuses to convert a string of more
+# than 4300 digits and raises ValueError, which is not a SpawnRuleError, so it
+# would slip past every except clause here and past config validation, which
+# asks this function whether the spec is valid.
+_NUM = r"\d{1,10}(?:\.\d{1,10})?"
+_SIZE_RE = re.compile(rf"^({_NUM})(%?)x({_NUM})(\2)$")
 
 # Wraps each rule so a rejected rule raises instead of failing silently, and
 # so enabling is explicit (a rule created without "enabled" stays off).
@@ -105,6 +113,12 @@ def size_spec_error(spec: object) -> str | None:
             return f"{spec!r} dimensions must be greater than zero"
         if percent and value > 100:
             return f"{spec!r} percent values must not exceed 100"
+        if not percent and "." in raw:
+            # A fraction of a pixel is not a size, and parse_size reaches int()
+            # with this text, which refuses it with a bare ValueError — the same
+            # escape that let a 5000-digit spec through. Half a pixel is also
+            # almost certainly a typo rather than an intent.
+            return f"{spec!r} pixel dimensions must be whole numbers"
     return None
 
 

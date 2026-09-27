@@ -457,3 +457,36 @@ def test_reserved_order_is_left_top_right_bottom():
 def test_percent_size_uses_the_real_workarea():
     """The end-to-end consequence: 30%x40% of a 1920x1036 workarea."""
     assert parse_size("30%x40%", (0, 44, 1920, 1036)) == (576, 414)
+
+
+@pytest.mark.parametrize("spec", ["9" * 5000 + "x100", "9" * 5000 + "%x50%", "100x" + "9" * 5000])
+def test_absurdly_long_size_is_rejected_as_a_bad_spec(spec):
+    """A long spec must fail validation, not raise from int().
+
+    CPython refuses to convert a decimal string longer than 4300 digits and
+    raises ValueError. That is not a SpawnRuleError, so an unbounded spec that
+    reached int() would pass config validation — which calls size_spec_error —
+    and then abort the first canvas toggle with an exception nothing catches.
+    """
+    problem = size_spec_error(spec)
+    assert problem is not None
+    assert "is not a size" in problem
+
+    with pytest.raises(SpawnRuleError):
+        parse_size(spec, WORKAREA)
+
+
+@pytest.mark.parametrize(
+    "spec,expected", [("7680x4320", (7680, 4320)), ("30.5%x40%", (3050, 4000))]
+)
+def test_realistic_sizes_still_pass_the_digit_limit(spec, expected):
+    """The bound must not reject anything a real display needs."""
+    assert size_spec_error(spec) is None
+    assert parse_size(spec, (0, 0, 10000, 10000)) == expected
+
+
+def test_fractional_pixels_are_rejected():
+    """100.5x50 used to pass validation and then raise out of int()."""
+    assert "whole numbers" in str(size_spec_error("100.5x50"))
+    with pytest.raises(SpawnRuleError):
+        parse_size("100.5x50", WORKAREA)
