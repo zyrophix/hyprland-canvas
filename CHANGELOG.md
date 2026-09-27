@@ -40,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   display with a 44px bar that turned `30%x40%` into 562x432 instead of
   576x414, and put the computed workarea centre at (938, 540) rather than
   (960, 562). The bug is invisible without a reserved area.
+- The `canvas.spawn` rule no longer carries `immediate`, `no_anim`, `no_dim`
+  and `no_shadow`. A windowrule is re-evaluated against every mapped window
+  and this one matches a whole workspace, so those effects reached windows
+  that were already open: no animation, no shadow, no dimming for as long as
+  canvas was on. The rule now says where a window goes and nothing about how
+  it looks.
 - A window that arrived floating during canvas is now tiled again on
   `canvas-toggle` even when the snapshot was empty. Canvas turned on with
   nothing tiled, a window spawned into it, and toggling off left that window

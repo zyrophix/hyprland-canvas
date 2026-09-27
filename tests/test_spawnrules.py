@@ -101,8 +101,24 @@ def test_catch_all_matches_any_class():
     assert "size = { 600, 400 }" in lua
     assert "float = true" in lua
     assert "center = true" in lua
-    assert "immediate = true" in lua
-    assert "no_anim = true" in lua
+
+
+def test_rule_places_a_window_without_restyling_it():
+    """The rule says where a window goes. It does not say how it looks.
+
+    It used to add immediate, no_anim, no_dim and no_shadow, which silenced
+    animation, dimming and shadows. Registering a windowrule re-evaluates it
+    against every mapped window, and the rule matches the whole workspace, so
+    that reached windows which were already open and that the sizing never
+    concerned itself with — a canvas that flattens them is not what the rule is
+    for. no_blur is in this list because the old comment named it while the code
+    set no_shadow instead.
+    """
+    cfg = {"center": True, "default": "600x400", "rules": []}
+    _name, lua = build_rules(cfg, 1, WORKAREA)[0]
+
+    for field in ("immediate", "no_anim", "no_dim", "no_shadow", "no_blur"):
+        assert field not in lua
 
 
 def test_center_can_be_disabled():

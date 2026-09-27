@@ -173,10 +173,6 @@ def _rule_lua(name: str, match: object, spec: str, workarea: Workarea, center: b
     ]
     if center:
         fields.append("center = true")
-    # immediate + no_anim keep the compositor from animating the placement.
-    # no_dim/no_shadow/no_blur stop the window from being treated as special,
-    # so a canvas window looks like an ordinary one.
-    fields += ["immediate = true", "no_anim = true", "no_dim = true", "no_shadow = true"]
     return f"_canvas_spawn_reg{{ {', '.join(fields)} }}"
 
 
