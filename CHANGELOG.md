@@ -125,6 +125,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compositor verbatim, which rejects the rule, undoes the batch and fails the
   toggle. A typo in a matcher is now loud rather than a rule that quietly
   matches nothing.
+- When several `canvas.spawn` rules match the same window, the last one wins,
+  the same as Hyprland's own `windowrule`. The 1.5.0 notes said first match
+  wins; that was never what the compositor did, and no release corrected it.
 
 ## [1.5.0] — 2026-09-27
 

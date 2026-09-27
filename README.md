@@ -232,13 +232,11 @@ all. On `canvas-toggle` the windows recorded at enable time are tiled again,
 while windows that were already floating survive.
 
 Where the windows end up afterwards is up to your layout, not to the order they
-were toggled in: dwindle puts each window back as a split at whatever node is
-under the cursor when it becomes tiled. Switching canvas off can therefore
-reshuffle the grid — particularly the windows that are the same size as each
-other, since nothing distinguishes them. Your canvas arrangement is unaffected;
-only the tiled grid moves. Setting `dwindle: use_active_for_splits = true`
-makes the layout split at the focused window instead of the cursor, which makes
-it reproducible.
+were toggled in: dwindle puts each window back as a split at the node nearest
+the cursor. Switching canvas off can therefore reshuffle the grid —
+particularly windows that are the same size as each other, since nothing
+distinguishes them. Your canvas arrangement is unaffected; only the tiled grid
+moves.
 
 ### Sizing windows that open during canvas
 
