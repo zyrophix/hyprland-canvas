@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-09-27
+
+### Added
+
+- `canvas.auto_float` shapes windows opened while a workspace is in canvas mode:
+  they arrive floating, sized and centred, applied by the compositor as a
+  windowrule at map time, so there is no reflow and no polling.
+- `canvas.spawn` sets the size — pixels (`910x930`) or a percentage of the
+  workarea of the monitor owning the workspace (`30%x40%`) — plus a default and
+  an ordered list of per-`class`/`title` overrides, first match wins. Matchers
+  use the same properties and regular expression semantics as Hyprland
+  `windowrule`. The same sizing is applied to windows that were already open
+  when canvas was enabled.
+- Windows picked up this way are tiled again on `canvas-toggle`; windows that
+  were already floating before canvas was enabled are left untouched.
+
+### Fixed
+
+- `canvas-toggle` no longer scrambles the layout. Hyprland deliberately does not
+  keep a tiled box when a window becomes floating — it substitutes the size the
+  client asked for, re-centres on the old centre and clamps the result into the
+  workarea — and because windows were floated one at a time, each step re-ran
+  the layout and the result also depended on the order. The daemon now sets the
+  geometry itself in a single batch, so every window keeps the exact position
+  and size it had.
+- Only geometry the user actually panned to is remembered across a toggle.
+  Previously whatever the compositor produced when a window became floating was
+  captured and then replayed on every following toggle, so one odd moment
+  permanently stuck a window at a bogus size such as `-2,-2 1920x1080`.
+- Edge-scroll no longer dies when a window is pushed against a screen edge. The
+  compositor clamps the dragged window to the workarea, so the pointer
+  necessarily ends up outside the window rect; the session treated that as a
+  lost grab and stopped, and because a session is armed per mouse press the
+  camera stayed dead until the window was released and grabbed again. The
+  pointer check now applies only until the drag is confirmed, after which the
+  window's own motion is the ground truth.
+
+### Changed
+
+- Toggle state format v4: workspaces additionally record the addresses that
+  were floating at ON and the spawn rule names registered for them. Files from
+  v2 and v3 load unchanged, with both new sections empty.
+
+### Credits
+
+- The idea of floating newly opened windows into the canvas came from
+  [shinishiz/hyprland-canvas](https://github.com/shinishiz/hyprland-canvas).
+  The implementation here is independent and uses compositor windowrules
+  instead of a socket event listener.
+
 ## [1.4.2] — 2026-09-26
 
 ### Fixed

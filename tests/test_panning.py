@@ -359,16 +359,22 @@ def test_idle_timeout_fires_on_still_grab():
 
 
 def test_cursor_leaving_window_disarms_session():
-    """The session lives only while the pointer stays on the dragged window."""
+    """Before the drag is confirmed, the pointer must stay on the window.
+
+    This is the ghost guard. Once a drag is confirmed the check no longer
+    applies: at a workarea edge the compositor clamps the window, so the cursor
+    necessarily leaves the window rect while the drag is perfectly real — see
+    test_confirmed_drag_survives_cursor_outrunning_a_clamped_window.
+    """
     es = EdgeScrollState(ramp_distance=50, speed=20.0, grab_dead_zone=5)
     es.set_monitor_rect(0, 0, 1920, 1080)
     _start_edge(es, 600, 300)
-    es.update_geometry("0xabc", 640, 340, 500, 300, 890, 490)  # confirm, cursor inside
 
-    # cursor slides far off the window while geometry keeps changing
-    es.update_geometry("0xabc", 700, 400, 500, 300, 1800, 900)
+    # window never moves past the dead zone, cursor walks off it
+    es.update_geometry("0xabc", 640, 340, 500, 300, 1800, 900)
     assert es.active is False
     assert es.dragged_addr == ""
+    assert es.confirmed_drag is False
     dx, dy = es.consume_delta()
     assert (dx, dy) == (0, 0)
 
@@ -496,3 +502,120 @@ def test_first_tick_after_start_treated_as_stationary():
     _start_edge(es, 1800, 390)  # right edge 380px past monitor
     es.update_geometry("0xabc", 1800, 390, 500, 300, 2050, 540)  # not confirmed yet
     assert es.consume_delta() == (0, 0)
+
+
+# --- cursor outruns the window at a clamped edge ---------------------------
+#
+# The compositor clamps a dragged window to the workarea, so at a boundary the
+# cursor necessarily ends up outside the window rect. Disarming there killed
+# the camera for the rest of the press, and edge-start only fires on press, so
+# the user had to release and grab the window again.
+
+
+def _edge(**kwargs):
+    params = {
+        "ramp_distance": 50,
+        "speed": 20.0,
+        "enabled": True,
+        "grab_dead_zone": 5,
+    }
+    params.update(kwargs)
+    return EdgeScrollState(**params)
+
+
+def _arm(es, x=500, y=300, w=935, h=493, cursor=(600, 400)):
+    es.set_monitor_rect(0, 0, 1920, 1080)
+    return es.start(
+        EdgeScrollParams(
+            dragged_addr="0x1",
+            win_x=x,
+            win_y=y,
+            win_w=w,
+            win_h=h,
+            cursor_x=cursor[0],
+            cursor_y=cursor[1],
+        )
+    )
+
+
+def test_confirmed_drag_survives_cursor_outrunning_a_clamped_window():
+    """The reported bug: pushing past a workarea edge killed the camera."""
+    es = _edge()
+    _arm(es)
+    workarea_right, w, h = 1876, 935, 493
+    x0, y0 = 500, 300
+    cx, cy = 600, 400
+
+    for step in range(1, 200):
+        cx = min(cx + 20, 1920)
+        # the compositor clamps the window to the workarea
+        nx = min(x0 + step * 20, workarea_right - w)
+        es.update_geometry("0x1", nx, y0, w, h, cx, cy)
+        assert es.active, f"session died at step {step}: cursor_x={cx} window_x={nx}"
+
+    assert es.confirmed_drag
+    assert es.pending_preview[0] > 0, "camera should still be scrolling right"
+
+
+def test_ghost_press_still_disarms_when_cursor_leaves_before_any_drag():
+    """A press that never became a drag must not leave the camera chasing."""
+    es = _edge()
+    _arm(es)
+
+    # window never moves, cursor walks far away
+    es.update_geometry("0x1", 500, 300, 935, 493, 1800, 400)
+
+    assert not es.active
+    assert not es.confirmed_drag
+
+
+def test_ghost_press_across_the_other_axis_still_disarms():
+    es = _edge()
+    _arm(es)
+
+    es.update_geometry("0x1", 500, 300, 935, 493, 600, 900)
+
+    assert not es.active
+
+
+def test_cursor_check_still_applies_on_the_confirming_frame():
+    """Confirmation must not sneak past the ghost check in the same tick."""
+    es = _edge()
+    _arm(es)
+
+    # window moved past the dead zone, but the cursor is elsewhere
+    es.update_geometry("0x1", 520, 300, 935, 493, 1500, 400)
+
+    assert not es.active
+    assert not es.confirmed_drag
+
+
+def test_focus_mismatch_disarms_even_after_confirmation():
+    """The remaining ghost guard stays active for a confirmed drag."""
+    es = _edge()
+    _arm(es)
+
+    es.update_geometry("0x1", 600, 300, 935, 493, 700, 400)
+    assert es.confirmed_drag
+
+    es.update_geometry("0x2", 600, 300, 935, 493, 700, 400)
+    assert not es.active
+
+
+def test_drag_away_from_an_edge_stops_that_side():
+    """Direction awareness is unaffected: pulling back must not keep scrolling."""
+    es = _edge()
+    _arm(es)
+
+    # push right to the edge and confirm
+    for i in range(1, 6):
+        es.update_geometry("0x1", 500 + i * 20, 300, 935, 493, 600 + i * 20, 400)
+    assert es.confirmed_drag
+
+    # now walk the window back left, away from the right edge
+    for i in range(6, 30):
+        nx = 500 + (30 - i) * 20
+        es.update_geometry("0x1", nx, 300, 935, 493, 600, 400)
+        assert es.active, f"session died while dragging back at step {i}"
+
+    assert es.pending_preview[0] == 0

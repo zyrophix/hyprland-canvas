@@ -7,7 +7,7 @@ packages = ["canvas"]
 
 [project]
 name = "hyprland-canvas"
-version = "1.4.2"
+version = "1.5.0"
 description = "Infinite canvas for Hyprland — pan floating windows like an infinite desktop"
 requires-python = ">=3.12"
 dependencies = ["pyyaml>=6.0"]

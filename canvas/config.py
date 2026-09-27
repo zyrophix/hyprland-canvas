@@ -8,6 +8,8 @@ from typing import Any, TypeGuard
 
 import yaml
 
+from canvas.spawnrules import MATCH_KEYS, size_spec_error
+
 
 class ConfigError(Exception):
     """Raised when the configuration contains invalid values."""
@@ -43,6 +45,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "canvas": {
         "preserve_geometry": True,
+        "auto_float": False,
+        "spawn": {
+            "center": True,
+            "default": "30%x40%",
+            "rules": [],
+        },
     },
 }
 
@@ -119,11 +127,65 @@ def validate(cfg: dict[str, Any]) -> list[str]:
     canvas_cfg = cfg.get("canvas")
     if not isinstance(canvas_cfg, dict):
         errors.append("canvas section must be a mapping")
-    elif not isinstance(canvas_cfg.get("preserve_geometry"), bool):
+        return errors
+
+    if not isinstance(canvas_cfg.get("preserve_geometry"), bool):
         errors.append(
             "canvas.preserve_geometry must be a boolean, "
             f"got {canvas_cfg.get('preserve_geometry')!r}"
         )
+    if not isinstance(canvas_cfg.get("auto_float"), bool):
+        errors.append(f"canvas.auto_float must be a boolean, got {canvas_cfg.get('auto_float')!r}")
+    errors.extend(_validate_spawn(canvas_cfg.get("spawn")))
+
+    return errors
+
+
+def _validate_spawn(spawn: object) -> list[str]:
+    """Validate the canvas.spawn section.
+
+    Sizes are checked against the workarea at registration time; here we only
+    verify the shape so a typo fails at startup instead of on first toggle.
+    """
+    if not isinstance(spawn, dict):
+        return ["canvas.spawn section must be a mapping"]
+
+    errors: list[str] = []
+    if not isinstance(spawn.get("center"), bool):
+        errors.append(f"canvas.spawn.center must be a boolean, got {spawn.get('center')!r}")
+
+    default = spawn.get("default")
+    problem = size_spec_error(default)
+    if problem:
+        errors.append(f"canvas.spawn.default {problem}")
+
+    rules = spawn.get("rules")
+    if not isinstance(rules, list):
+        errors.append(f"canvas.spawn.rules must be a list, got {rules!r}")
+        return errors
+
+    for index, entry in enumerate(rules):
+        if not isinstance(entry, dict):
+            errors.append(f"canvas.spawn.rules[{index}] must be a mapping")
+            continue
+        match = entry.get("match")
+        if not isinstance(match, dict) or not match:
+            errors.append(f"canvas.spawn.rules[{index}].match must be a non-empty mapping")
+        else:
+            for key in match:
+                if key not in MATCH_KEYS:
+                    errors.append(
+                        f"canvas.spawn.rules[{index}].match has unknown property {key!r}; "
+                        f"expected one of {', '.join(sorted(MATCH_KEYS))}"
+                    )
+                elif not isinstance(match[key], (str, bool, int, float)):
+                    errors.append(
+                        f"canvas.spawn.rules[{index}].match.{key} must be a string, "
+                        f"bool or number, got {match[key]!r}"
+                    )
+        spec_problem = size_spec_error(entry.get("size"))
+        if spec_problem:
+            errors.append(f"canvas.spawn.rules[{index}].size {spec_problem}")
 
     return errors
 

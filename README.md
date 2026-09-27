@@ -173,18 +173,65 @@ navigation:
     - chromium
     - firefox
 canvas:
-  preserve_geometry: true     # remember floating window positions/sizes on OFF,
-                               # restore them on the next ON; tiled placement itself
-                               # is always layout-owned
+  preserve_geometry: true     # remember where you panned windows to, and restore
+                               # them on the next ON; windows you did not move go
+                               # back to the exact box they had when tiled
+  auto_float: false           # shape windows opened while canvas is ON (see below)
+  spawn:
+    center: true              # centre new canvas windows on their monitor
+    default: 30%x40%          # size for any canvas window without an override
+    rules:                    # first match wins, checked before the default
+      - match: { class: btop }
+        size: 910x930
+      - match: { title: ".*nvim.*" }
+        size: 45%x35%
 ```
 
 Invalid values (wrong type, zero/negative numbers) are rejected
 at daemon startup with the exact offending keys listed on stderr.
 
+### What canvas-toggle does to window geometry
+
+Enabling canvas makes the workspace's tiled windows float **in place, at exactly
+the size they had**. This is deliberate, because Hyprland's own float toggle
+does not preserve a tiled box: it substitutes the size the application asked
+for, re-centres the window on its old centre and clamps the result into the
+workarea, so a 463x493 window can come back as 945x503 or even 1920x1080. The
+daemon therefore sets the geometry itself, in one batch, which also makes the
+result independent of the order the windows were floated in.
+
+Windows that were already floating when canvas was enabled are not touched at
+all. On `canvas-toggle` the windows recorded at enable time are tiled again,
+while windows that were already floating survive. If you pan while canvas is
+on, those positions are remembered and restored on the next enable — geometry
+the compositor produced on its own is not treated as your choice and is never
+remembered.
+
+### Sizing windows that open during canvas
+
+With `canvas.auto_float: true`, a window opened while a workspace is in canvas
+mode arrives already floating, sized and centred — the compositor applies a
+windowrule at map time, so there is no visible reflow and no polling in the
+daemon. The same sizing is applied to the windows that were already open when
+canvas was enabled, so both end up the same size.
+
+Sizes are either pixels (`910x930`) or a percentage of the workarea of the
+monitor that owns the workspace (`30%x40%`); they are clamped so a window can
+never be asked to be larger than the screen. `match` accepts the same
+properties as a Hyprland `windowrule` matcher, and values are treated as
+regular expressions, so `.*nvim.*` works. Note that Hyprland matches these
+patterns as a *full* match: `class: btop` matches only the exact class `btop`.
+Rules are checked in order and the first match wins; everything else gets
+`default`.
+
+Only windows opened *after* canvas is enabled are affected by the rules —
+windows already open are only repositioned, never resized by the rules.
+
 ## Repo overview
 
 - `canvas/` — daemon source: `hypr.py` (IPC), `panning.py`,
-  `navigation.py`, `ipc.py` (ctl server), `config.py`, `daemon.py`
+  `navigation.py`, `spawnrules.py` (canvas spawn sizing), `ipc.py` (ctl server),
+  `config.py`, `toggle_state.py`, `daemon.py`
 - `tests/` — mocked pytest suite, no live compositor needed (`uv run pytest`)
 - `docs/` — [architecture.md](docs/architecture.md): process model, IPC, config load
 - `docs/` — [debugging.md](docs/debugging.md): logs, tracing, common failures

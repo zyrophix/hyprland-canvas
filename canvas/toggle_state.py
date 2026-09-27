@@ -11,11 +11,18 @@ Written under XDG_RUNTIME_DIR (tmpfs): survives daemon restarts within
 a session, resets on reboot — matching the session-scoped nature of
 canvas mode itself.
 
-Format v3 on disk: {"_v": 3, "<ws>": {"active": bool, "tiled": {...},
-"floating": {...}}}. The active bit distinguishes an all-floating canvas
-workspace from saved geometry for a workspace whose canvas mode is OFF.
+Format v4 on disk: {"_v": 4, "<ws>": {"active": bool, "tiled": {...},
+"floating": {...}, "pre_floating": [...], "spawn_rules": [...]}}. The active
+bit distinguishes an all-floating canvas workspace from saved geometry for a
+workspace whose canvas mode is OFF.
+- "pre_floating": addresses that were already floating at ON. Windows floating
+  at OFF but absent from this list arrived during canvas and are tiled back.
+- "spawn_rules": compositor windowrule names registered for this workspace.
+  The compositor keeps them beyond our lifetime and cannot list them, so the
+  names are stored here and disabled again on OFF or at the next startup.
 Older files are auto-migrated on load; v2 active state is inferred from
-whether its tiled snapshot is non-empty.
+whether its tiled snapshot is non-empty, and both new sections default to
+empty for every earlier version.
 """
 
 import json
@@ -28,7 +35,7 @@ from canvas import debug
 
 log = logging.getLogger("canvas.toggle")
 
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 
 
 class ToggleStateError(RuntimeError):
@@ -42,13 +49,21 @@ class WorkspaceState(TypedDict):
     active: bool
     tiled: Snapshot
     floating: Snapshot
+    pre_floating: list[str]
+    spawn_rules: list[str]
 
 
 State = dict[int, WorkspaceState]
 
 
 def _empty_workspace() -> WorkspaceState:
-    return {"active": False, "tiled": {}, "floating": {}}
+    return {"active": False, "tiled": {}, "floating": {}, "pre_floating": [], "spawn_rules": []}
+
+
+def _parse_addresses(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return sorted({str(a) for a in raw if isinstance(a, str)})
 
 
 def default_path() -> str:
@@ -87,9 +102,9 @@ def _parse_snapshot(raw_snap: Any) -> Snapshot:
 def _parse_workspace(raw_ws: Any, version: int) -> WorkspaceState:
     """Parse one workspace entry, migrating old formats.
 
-    v3 adds an explicit active bit. v2 sections are accepted with active
-    inferred from a non-empty tiled snapshot. Older list/bare-dict formats:
-    addresses are
+    v4 adds pre_floating and spawn_rules. v3 adds an explicit active bit. v2
+    sections are accepted with active inferred from a non-empty tiled snapshot.
+    Older list/bare-dict formats: addresses are
     kept for OFF targeting, geometry is dropped — old geos describe tiled
     slots, which must never be applied as floating positions.
     """
@@ -98,11 +113,13 @@ def _parse_workspace(raw_ws: Any, version: int) -> WorkspaceState:
         floating = _parse_snapshot(raw_ws.get("floating", {}))
         # v2 had no explicit active bit. Non-empty tiled snapshots were the only
         # states that could represent an active canvas mode. v3 stores it directly.
-        active = raw_ws.get("active", bool(tiled)) if version >= FORMAT_VERSION else bool(tiled)
+        active = raw_ws.get("active", bool(tiled)) if version >= 3 else bool(tiled)
         return {
             "active": active if isinstance(active, bool) else bool(tiled),
             "tiled": tiled,
             "floating": floating,
+            "pre_floating": _parse_addresses(raw_ws.get("pre_floating")),
+            "spawn_rules": _parse_addresses(raw_ws.get("spawn_rules")),
         }
     addrs: set[str] = set()
     if isinstance(raw_ws, list):
@@ -111,7 +128,13 @@ def _parse_workspace(raw_ws: Any, version: int) -> WorkspaceState:
         for addr in raw_ws:
             if isinstance(addr, str):
                 addrs.add(addr)
-    return {"active": bool(addrs), "tiled": {a: {} for a in addrs}, "floating": {}}
+    return {
+        "active": bool(addrs),
+        "tiled": {a: {} for a in addrs},
+        "floating": {},
+        "pre_floating": [],
+        "spawn_rules": [],
+    }
 
 
 def load(path: str | None = None) -> State:
@@ -178,6 +201,8 @@ def save(state: State, path: str | None = None) -> None:
                 "floating": {
                     addr: geo for addr, geo in sorted(sections.get("floating", {}).items())
                 },
+                "pre_floating": sorted(set(sections.get("pre_floating", []))),
+                "spawn_rules": list(sections.get("spawn_rules", [])),
             }
         with open(tmp, "w") as f:
             json.dump(serializable, f)

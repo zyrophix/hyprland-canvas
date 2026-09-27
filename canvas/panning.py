@@ -166,6 +166,13 @@ class EdgeScrollState:
     while the window moves toward it (or is held against it). Pulling the
     window away from an edge stops that side's assist immediately, so a
     window parked near a boundary never drags the camera behind your back.
+
+    A session is armed per mouse press. It ends on release, on a lost focus
+    change, and on an idle timeout. The pointer must stay on the dragged
+    window only until the drag is confirmed: at a workarea edge the
+    compositor clamps the window, so the pointer necessarily leaves the
+    window rect while the drag is still entirely real, and treating that as
+    a lost grab killed the camera for the rest of the press.
     """
 
     _IDLE_TIMEOUT = 0.5
@@ -299,29 +306,40 @@ class EdgeScrollState:
                 self._pending_dy = 0.0
                 return
 
-            # The session lives only while the pointer stays on the dragged
-            # window (with slack for borders). Cursor elsewhere means the
-            # grab is gone — never let the camera chase a ghost.
-            margin = self.CURSOR_MARGIN
-            inside = (
-                x - margin <= cursor_x < x + w + margin and y - margin <= cursor_y < y + h + margin
-            )
-            if not inside:
-                debug.dbg(
-                    "EDGE_DISARM",
-                    s=self._session,
-                    reason="cursor_left",
-                    geo=(x, y, w, h),
-                    cursor=(cursor_x, cursor_y),
+            # Until the drag is confirmed, the session lives only while the
+            # pointer stays on the dragged window (with slack for borders):
+            # cursor elsewhere means the press never became a drag, and the
+            # camera must never chase a ghost.
+            #
+            # After confirmation the window's own motion is the ground truth.
+            # The cursor check has to stop there, because at a workarea edge
+            # the compositor clamps the window and the cursor necessarily
+            # ends up outside it — and that is exactly the "held against the
+            # edge" case the camera is meant to follow. The window following
+            # the cursor is only impossible at a boundary, so nothing else is
+            # lost by dropping the check. The focus check above stays.
+            if not self._confirmed_drag:
+                margin = self.CURSOR_MARGIN
+                inside = (
+                    x - margin <= cursor_x < x + w + margin
+                    and y - margin <= cursor_y < y + h + margin
                 )
-                self._active = False
-                self._dragged_addr = ""
-                self._confirmed_drag = False
-                self._prev_x = None
-                self._prev_y = None
-                self._pending_dx = 0.0
-                self._pending_dy = 0.0
-                return
+                if not inside:
+                    debug.dbg(
+                        "EDGE_DISARM",
+                        s=self._session,
+                        reason="cursor_left",
+                        geo=(x, y, w, h),
+                        cursor=(cursor_x, cursor_y),
+                    )
+                    self._active = False
+                    self._dragged_addr = ""
+                    self._confirmed_drag = False
+                    self._prev_x = None
+                    self._prev_y = None
+                    self._pending_dx = 0.0
+                    self._pending_dy = 0.0
+                    return
 
             self._last_geo = (x, y, w, h)
 

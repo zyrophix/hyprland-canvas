@@ -179,11 +179,15 @@ def test_toggle_state_roundtrip(tmp_path):
             "active": True,
             "tiled": {"0xabc": {"at": [10, 20], "size": [500, 300]}, "0x2": {}},
             "floating": {"0xabc": {"at": [11, 21], "size": [500, 300]}},
+            "pre_floating": ["0x2", "0x9"],
+            "spawn_rules": ["canvas-spawn-ws1-default"],
         },
         7: {
             "active": True,
             "tiled": {"0xfff": {"at": [0, 0], "size": [100, 100]}},
             "floating": {},
+            "pre_floating": [],
+            "spawn_rules": [],
         },
     }
     ts_save(state, path=file)
@@ -331,3 +335,96 @@ def test_toggle_state_save_raises_on_write_failure(tmp_path):
         pytest.raises(ToggleStateError, match="could not persist"),
     ):
         ts_save({}, path=path)
+
+
+# --- canvas.spawn validation ------------------------------------------------
+
+
+def _cfg(**canvas):
+    return {"speed": 1.6, "canvas": {"preserve_geometry": True, **canvas}}
+
+
+def test_validate_accepts_minimal_spawn():
+    problems = validate(
+        _cfg(auto_float=True, spawn={"center": True, "default": "30%x40%", "rules": []})
+    )
+    assert not any("canvas" in p for p in problems)
+
+
+def test_validate_rejects_non_bool_auto_float():
+    problems = validate(_cfg(auto_float="yes"))
+    assert any("auto_float" in p for p in problems)
+
+
+def test_validate_rejects_non_mapping_spawn():
+    problems = validate(_cfg(spawn="30%x40%"))
+    assert any("canvas.spawn section must be a mapping" in p for p in problems)
+
+
+def test_validate_rejects_bad_default_size():
+    problems = validate(_cfg(spawn={"center": True, "default": "big", "rules": []}))
+    assert any("canvas.spawn.default" in p for p in problems)
+
+
+def test_validate_rejects_null_rules_list():
+    """A bare "rules:" key in YAML parses as None and must be reported clearly."""
+    problems = validate(_cfg(spawn={"center": True, "default": "600x400", "rules": None}))
+    assert any("canvas.spawn.rules must be a list" in p for p in problems)
+
+
+def test_validate_rejects_non_mapping_rule_entry():
+    problems = validate(_cfg(spawn={"center": True, "default": "600x400", "rules": ["btop"]}))
+    assert any("rules[0] must be a mapping" in p for p in problems)
+
+
+def test_validate_rejects_empty_match():
+    problems = validate(
+        _cfg(spawn={"center": True, "default": "600x400", "rules": [{"match": {}, "size": "1x1"}]})
+    )
+    assert any("match must be a non-empty mapping" in p for p in problems)
+
+
+def test_validate_rejects_unknown_match_property():
+    problems = validate(
+        _cfg(
+            spawn={
+                "center": True,
+                "default": "600x400",
+                "rules": [{"match": {"klass": "btop"}, "size": "1x1"}],
+            }
+        )
+    )
+    assert any("unknown property" in p for p in problems)
+
+
+def test_validate_rejects_non_scalar_match_value():
+    problems = validate(
+        _cfg(
+            spawn={
+                "center": True,
+                "default": "600x400",
+                "rules": [{"match": {"class": ["a", "b"]}, "size": "1x1"}],
+            }
+        )
+    )
+    assert any("must be a string, bool or number" in p for p in problems)
+
+
+def test_validate_rejects_bad_rule_size():
+    problems = validate(
+        _cfg(
+            spawn={
+                "center": True,
+                "default": "600x400",
+                "rules": [{"match": {"class": "btop"}, "size": "910"}],
+            }
+        )
+    )
+    assert any("rules[0].size" in p for p in problems)
+
+
+def test_bundled_config_template_is_valid():
+    """config.yml ships as a copy-paste template, so it must pass validation."""
+    cfg = load("/nonexistent/path/config.yml", skip_user=True)
+    assert validate(cfg) == []
+    assert cfg["canvas"]["spawn"]["rules"] == []

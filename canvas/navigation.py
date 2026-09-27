@@ -6,8 +6,9 @@ import re
 import time
 from typing import Any
 
-from canvas import debug, toggle_state
+from canvas import debug, spawnrules, toggle_state
 from canvas.hypr import LUA_DISPATCH_HELPER, HyprIPC
+from canvas.spawnrules import Workarea
 
 log = logging.getLogger("canvas.navigation")
 
@@ -36,19 +37,33 @@ class Navigator:
         protected_apps: list[str],
         cooldown: float = 0.2,
         preserve_geometry: bool = True,
+        auto_float: bool = False,
+        spawn_cfg: dict[str, Any] | None = None,
     ) -> None:
         self._ipc = ipc
         self._protected_apps = [a.lower() for a in protected_apps]
         self._cooldown = cooldown
         self._preserve_geometry = preserve_geometry
+        self._auto_float = auto_float
+        self._spawn_cfg = spawn_cfg or {}
         self._last_nav_time = 0.0
         # workspace id -> snapshot of TILED windows before canvas ON.
         # Only these are tiled again on OFF, so windows that were already
         # floating before canvas mode survive.
         # workspace id -> last known FLOATING geometry per address.
         # Reapplied on the next ON so the canvas comes back where it was.
+        # workspace id -> addresses already floating at ON. Windows floating at
+        # OFF but absent from here arrived during canvas and belong to it.
+        # workspace id -> addresses the user actually moved while canvas was
+        # on. Only these are worth remembering: geometry Hyprland produced by
+        # itself when a window became floating is not a user choice.
+        # workspace id -> spawn rule names registered in the compositor, kept
+        # so rules left behind by a crash can be disabled again at startup.
         self._canvas_mode_workspaces: dict[int, dict[str, dict[str, list[int]]]] = {}
         self._floating_geos: dict[int, dict[str, dict[str, list[int]]]] = {}
+        self._pre_floating: dict[int, set[str]] = {}
+        self._panned: dict[int, set[str]] = {}
+        self._spawn_rules: dict[int, list[str]] = {}
         raw = toggle_state.load()
         for ws, sections in raw.items():
             if isinstance(sections, list):
@@ -70,6 +85,12 @@ class Navigator:
                     self._canvas_mode_workspaces[ws] = dict(tiled)
                 if floating:
                     self._floating_geos[ws] = dict(floating)
+                pre = sections.get("pre_floating")
+                if isinstance(pre, list):
+                    self._pre_floating[ws] = {str(a) for a in pre if isinstance(a, str)}
+                rules = sections.get("spawn_rules")
+                if isinstance(rules, list):
+                    self._spawn_rules[ws] = [str(a) for a in rules if isinstance(a, str)]
             elif isinstance(sections, dict):
                 # Legacy v1 dict (addr->geo of tiled slots): keep addresses
                 # for targeting, drop geometry (tiled slots are layout-owned).
@@ -244,16 +265,20 @@ class Navigator:
         self,
         canvas_modes: dict[int, dict[str, dict[str, list[int]]]],
         floating_geos: dict[int, dict[str, dict[str, list[int]]]],
+        pre_floating: dict[int, set[str]] | None = None,
+        spawn_rules: dict[int, list[str]] | None = None,
     ) -> None:
-        workspaces = set(canvas_modes) | set(floating_geos)
+        pre = self._pre_floating if pre_floating is None else pre_floating
+        rules = self._spawn_rules if spawn_rules is None else spawn_rules
+        workspaces = set(canvas_modes) | set(floating_geos) | set(pre) | set(rules)
         state: toggle_state.State = {}
         for ws in workspaces:
-            if ws not in canvas_modes and ws not in floating_geos:
-                continue
             state[ws] = {
                 "active": ws in canvas_modes,
                 "tiled": dict(canvas_modes.get(ws, {})),
                 "floating": dict(floating_geos.get(ws, {})),
+                "pre_floating": sorted(pre.get(ws, set())),
+                "spawn_rules": list(rules.get(ws, [])),
             }
         toggle_state.save(state)
 
@@ -269,11 +294,28 @@ class Navigator:
         if workspace_id in self._canvas_mode_workspaces:
             snapshot = self._canvas_mode_workspaces[workspace_id]
             captured: dict[str, dict[str, list[int]]] = {}
-            if self._preserve_geometry and snapshot:
-                snapshot_result = self._snapshot_floating_geos(workspace_id, set(snapshot.keys()))
+            # Remember only where the user put windows by panning. Everything
+            # else is restored from the tiled snapshot on the next ON, which is
+            # the box the window actually had.
+            panned = set(self._panned.get(workspace_id, set())) & set(snapshot)
+            if self._preserve_geometry and panned:
+                snapshot_result = self._snapshot_floating_geos(workspace_id, panned)
                 if snapshot_result is None:
                     return "ERROR:SNAPSHOT_FAILED"
                 captured = snapshot_result
+
+            # Windows that arrived as floating during canvas (spawn rules make
+            # them float at map time) are canvas members too, so they are tiled
+            # back. Addresses already in the snapshot keep their recorded
+            # geometry — _toggle_order reads it to restore the original layout.
+            tile_target = snapshot
+            if snapshot and self._auto_float:
+                arrived = self._arrived_addresses(workspace_id)
+                extra: dict[str, dict[str, list[int]]] = {
+                    a: {} for a in sorted(arrived) if a not in snapshot
+                }
+                if extra:
+                    tile_target = {**snapshot, **extra}
 
             next_modes = dict(self._canvas_mode_workspaces)
             next_modes.pop(workspace_id, None)
@@ -282,16 +324,23 @@ class Navigator:
                 next_floating[workspace_id] = captured
             elif not self._preserve_geometry:
                 next_floating.pop(workspace_id, None)
+            next_pre = dict(self._pre_floating)
+            next_pre.pop(workspace_id, None)
+            next_panned = dict(self._panned)
+            next_panned.pop(workspace_id, None)
+            stale_rules = self._spawn_rules.get(workspace_id, [])
+            next_rules = dict(self._spawn_rules)
+            next_rules.pop(workspace_id, None)
 
             # Persist the target state first. A persistence failure therefore
             # cannot leave the compositor tiled while memory still says ON.
             try:
-                self._persist_canvas_state(next_modes, next_floating)
+                self._persist_canvas_state(next_modes, next_floating, next_pre, next_rules)
             except toggle_state.ToggleStateError as e:
                 log.warning("canvas OFF state save failed: %s", e)
                 return "ERROR:STATE_SAVE_FAILED"
 
-            if snapshot and not self._tile_windows(workspace_id, snapshot):
+            if tile_target and not self._tile_windows(workspace_id, tile_target):
                 compositor_rollback = self._set_snapshot_floating(
                     workspace_id, snapshot, floating=True
                 )
@@ -313,8 +362,17 @@ class Navigator:
                     return "ERROR:COMPOSITOR_ROLLBACK_FAILED"
                 return "ERROR:TILE_FAILED"
 
+            # Only now that the tiling succeeded may the spawn rules go away:
+            # a failed tile rolls the workspace back to floating, where the
+            # rules are still the right behaviour.
+            if stale_rules:
+                spawnrules.disable(stale_rules, self._ipc)
+
             self._canvas_mode_workspaces = next_modes
             self._floating_geos = next_floating
+            self._pre_floating = next_pre
+            self._panned = next_panned
+            self._spawn_rules = next_rules
             if debug.enabled():
                 debug.dbg2(
                     "TOGGLE_OFF",
@@ -345,19 +403,51 @@ class Navigator:
                 return "ERROR:SNAPSHOT_FAILED"
             rollback_geos = rollback_result
 
+        # Windows already floating at ON must not be tiled back on OFF, so
+        # record them. Only needed when spawn rules can add floating windows.
+        pre_floating: set[str] = set()
+        rule_names: list[str] = []
+        workarea: Workarea | None = None
+        if self._auto_float:
+            captured_floating = self._snapshot_floating_addresses(workspace_id)
+            if captured_floating is None:
+                return "ERROR:SNAPSHOT_FAILED"
+            pre_floating = captured_floating
+
+            # Register before touching state or the compositor: a failure here
+            # leaves both untouched, so no rollback is needed.
+            workarea = spawnrules.resolve_workareas(self._ipc).get(workspace_id)
+            if workarea is None:
+                log.warning("canvas ON: no workarea for workspace %s", workspace_id)
+                return "ERROR:SPAWN_RULE_FAILED"
+            try:
+                built = spawnrules.build_rules(self._spawn_cfg, workspace_id, workarea)
+                rule_names = spawnrules.register(built, self._ipc)
+            except spawnrules.SpawnRuleError as e:
+                log.warning("canvas ON: spawn rules failed: %s", e)
+                return "ERROR:SPAWN_RULE_FAILED"
+
+        next_pre = dict(self._pre_floating)
+        next_pre[workspace_id] = pre_floating
+        next_rules = dict(self._spawn_rules)
+        next_rules[workspace_id] = rule_names
+
         try:
-            self._persist_canvas_state(next_modes, next_floating)
+            self._persist_canvas_state(next_modes, next_floating, next_pre, next_rules)
         except toggle_state.ToggleStateError as e:
             log.warning("canvas ON state save failed: %s", e)
+            spawnrules.disable(rule_names, self._ipc)
             return "ERROR:STATE_SAVE_FAILED"
 
         if not self._set_all_floating(workspace_id, floating=True):
             failure = "ERROR:FLOAT_FAILED"
-        elif not self._restore_floating_geos(workspace_id):
+        elif not self._apply_canvas_geometry(workspace_id, tiled_snapshot, workarea):
             failure = "ERROR:GEOMETRY_RESTORE_FAILED"
         else:
             failure = ""
         if failure:
+            # Canvas never came up, so its spawn rules must not stay behind.
+            spawnrules.disable(rule_names, self._ipc)
             compositor_rollback = self._set_snapshot_floating(
                 workspace_id, tiled_snapshot, floating=False
             )
@@ -381,6 +471,8 @@ class Navigator:
 
         self._canvas_mode_workspaces = next_modes
         self._floating_geos = next_floating
+        self._pre_floating = next_pre
+        self._spawn_rules = next_rules
         if debug.enabled():
             debug.dbg2(
                 "TOGGLE_ON",
@@ -518,6 +610,177 @@ class Navigator:
         except Exception as e:
             log.warning("snapshot floating geos failed: %s", e)
             return None
+
+    def floating_addresses(self, workspace_id: int) -> set[str]:
+        """Addresses of the floating windows on a workspace, empty on failure."""
+        return self._snapshot_floating_addresses(workspace_id) or set()
+
+    def note_panned(self, workspace_id: int, addresses: set[str]) -> None:
+        """Record that the user moved these windows while canvas was on.
+
+        Only such geometry is worth restoring later. Geometry that Hyprland
+        produced on its own when a window became floating is not a choice the
+        user made, and replaying it is what used to make canvas-toggle scramble
+        the layout.
+        """
+        if not addresses:
+            return
+        self._panned.setdefault(workspace_id, set()).update(addresses)
+
+    def rehydrate_spawn_rules(self) -> None:
+        """Re-arm spawn rules after a daemon restart.
+
+        Rules live in the compositor's engine and outlive this process, so any
+        left behind by a previous run are disabled first — otherwise a crash
+        would leave canvas sizing active on a workspace that is not in canvas
+        mode. Every workspace that is still in canvas mode then gets a fresh
+        set, because the compositor cannot replay the old ones for us.
+        """
+        stale = [name for names in self._spawn_rules.values() for name in names]
+        if stale:
+            spawnrules.disable(stale, self._ipc)
+        self._spawn_rules = {}
+
+        if self._auto_float:
+            workareas = spawnrules.resolve_workareas(self._ipc)
+            for ws_id in sorted(self._canvas_mode_workspaces):
+                workarea = workareas.get(ws_id)
+                if workarea is None:
+                    log.warning("spawn rules: no workarea for workspace %s", ws_id)
+                    continue
+                try:
+                    built = spawnrules.build_rules(self._spawn_cfg, ws_id, workarea)
+                    self._spawn_rules[ws_id] = spawnrules.register(built, self._ipc)
+                except spawnrules.SpawnRuleError as e:
+                    log.warning("spawn rules for workspace %s failed: %s", ws_id, e)
+
+        try:
+            self._persist_canvas_state(self._canvas_mode_workspaces, self._floating_geos)
+        except toggle_state.ToggleStateError as e:
+            log.warning("spawn rule state save failed: %s", e)
+
+    def _snapshot_floating_addresses(self, workspace_id: int) -> set[str] | None:
+        """Addresses that are floating on the workspace right now.
+
+        Recorded at canvas ON so that OFF can tell windows that were already
+        floating (which survive) from windows the spawn rules made floating
+        during canvas (which are canvas members and get tiled back).
+        """
+        floating = self._get_floating_windows(workspace_id)
+        if floating is None:
+            return None
+        return {
+            str(w["address"])
+            for w in floating
+            if isinstance(w.get("address"), str) and _VALID_ADDR.match(str(w["address"]))
+        }
+
+    def _arrived_addresses(self, workspace_id: int) -> set[str]:
+        """Floating windows on the workspace that were not floating at ON."""
+        before = self._pre_floating.get(workspace_id, set())
+        floating = self._get_floating_windows(workspace_id)
+        if floating is None:
+            return set()
+        return {
+            str(w["address"])
+            for w in floating
+            if isinstance(w.get("address"), str)
+            and _VALID_ADDR.match(str(w["address"]))
+            and str(w["address"]) not in before
+        }
+
+    def _apply_canvas_geometry(
+        self,
+        workspace_id: int,
+        snapshot: dict[str, dict[str, list[int]]],
+        workarea: Workarea | None,
+    ) -> bool:
+        """Give every freshly floated window a geometry we chose.
+
+        Hyprland does not keep a tiled box when a window becomes floating: it
+        substitutes the size the client asked for, re-centres on the old centre
+        and clamps the result into the workarea, all on purpose. Worse, windows
+        are floated one at a time and each one re-runs the layout, so the result
+        also depends on the order. Setting the geometry here instead makes the
+        outcome deterministic and independent of both.
+
+        Priority per address: a position the user panned to, then the
+        configured spawn size, then the tiled box the window just had.
+        """
+        if not snapshot:
+            return True
+
+        stored = self._floating_geos.get(workspace_id, {}) if self._preserve_geometry else {}
+        props: dict[str, dict[str, str]] = {}
+        sizes: dict[str, tuple[int, int]] = {}
+        if self._auto_float and workarea is not None:
+            need_size = [a for a in snapshot if a not in stored]
+            if need_size:
+                props = self._client_class_title(workspace_id, set(need_size))
+                for addr in need_size:
+                    try:
+                        spec = spawnrules.resolve_spec(self._spawn_cfg, props.get(addr, {}))
+                        sizes[addr] = spawnrules.parse_size(spec, workarea)
+                    except spawnrules.SpawnRuleError as e:
+                        log.warning("spawn size for %s skipped: %s", addr, e)
+
+        targets: dict[str, dict[str, list[int]]] = {}
+        for addr in sorted(snapshot):
+            if not _VALID_ADDR.match(addr):
+                continue
+            if addr in stored:
+                targets[addr] = stored[addr]
+                continue
+            if addr in sizes:
+                _w, _h = sizes[addr]
+                box = snapshot[addr]
+                targets[addr] = {
+                    "at": list(box.get("at", [0, 0])),
+                    "size": [_w, _h],
+                }
+                continue
+            box = snapshot[addr]
+            at = list(box.get("at", [0, 0]))
+            size = list(box.get("size", [0, 0]))
+            if at == [0, 0] and size == [0, 0]:
+                continue
+            targets[addr] = {"at": at, "size": size}
+
+        if not targets:
+            return True
+        if debug.enabled():
+            debug.dbg2(
+                "CANVAS_GEOMETRY",
+                ws=workspace_id,
+                count=len(targets),
+                from_stored=sorted(a for a in targets if a in stored),
+                spawn_sized=sorted(a for a in targets if a in sizes),
+            )
+        return self._apply_floating_geos(workspace_id, targets)
+
+    def _client_class_title(
+        self, workspace_id: int, addresses: set[str]
+    ) -> dict[str, dict[str, str]]:
+        """Class and title per address, so spawn sizes can be matched locally."""
+        try:
+            resp = self._ipc.send("j/clients")
+            clients: list[dict[str, Any]] = json.loads(resp)
+        except Exception as e:
+            log.warning("spawn props lookup failed: %s", e)
+            return {}
+        out: dict[str, dict[str, str]] = {}
+        for w in clients:
+            addr = w.get("address")
+            if not isinstance(addr, str) or addr not in addresses:
+                continue
+            wsw = w.get("workspace")
+            if not isinstance(wsw, dict) or wsw.get("id") != workspace_id:
+                continue
+            out[addr] = {
+                "class": str(w.get("class", "")),
+                "title": str(w.get("title", "")),
+            }
+        return out
 
     def _restore_floating_geos(self, workspace_id: int) -> bool:
         """Move newly floated snapshot windows to stored floating geometry."""

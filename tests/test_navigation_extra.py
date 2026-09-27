@@ -312,7 +312,7 @@ def test_canvas_toggle_on_rollback_restores_preexisting_floating_window():
             ),
             patch.object(nav, "_snapshot_floating_geos", return_value=pre_geometry),
             patch.object(nav, "_set_all_floating", return_value=True),
-            patch.object(nav, "_restore_floating_geos", return_value=False),
+            patch.object(nav, "_apply_canvas_geometry", return_value=False),
             patch.object(nav, "_set_snapshot_floating", return_value=True) as rollback,
             patch.object(nav, "_apply_floating_geos", return_value=True) as apply_geo,
         ):

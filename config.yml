@@ -29,5 +29,18 @@ edge_scroll:
   # max_speed: 30              # optional: cap per-frame edge-scroll delta (pixels)
 
 canvas:
-  preserve_geometry: true      # remember floating geometry on OFF, restore on next ON
-                               # (tiled placement itself is always layout-owned)
+  preserve_geometry: true      # remember where you panned windows to, restore on
+                               # the next ON; windows you did not move return to
+                               # the exact box they had while tiled
+  auto_float: false            # shape windows opened while canvas is ON:
+                               # float + size + centre them at map time
+  spawn:
+    center: true               # centre new canvas windows on their monitor
+    default: 30%x40%           # px (910x930) or % of the monitor workarea
+    rules: []                   # first match wins; anything unmatched gets `default`
+                               # matchers are FULL matches: use .*btop.* for a
+                               # substring, plain btop only matches exactly "btop"
+      # - match: { class: btop }
+      #   size: 910x930
+      # - match: { title: ".*nvim.*" }
+      #   size: 45%x35%

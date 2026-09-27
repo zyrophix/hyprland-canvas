@@ -49,6 +49,13 @@ class DaemonState:
         # floating layouts stay untouched.
         self.baseline_workspace: int | None = None
         self.edge_scroll_workspace: int | None = None
+        # Floating windows moved by the current edge-scroll, captured once at
+        # EDGE_START. Resolving them per frame would add a j/clients round trip
+        # to the 60Hz loop, on top of the move dispatch it already issues.
+        self.edge_scroll_addresses: set[str] = set()
+        # Workspace already reported as panned, so a long pan records once
+        # instead of on every frame.
+        self._panned_noted_ws: int | None = None
         # Serializes compositor mutations from the IPC thread with main-loop
         # pan/edge moves. State objects retain their own fine-grained locks.
         self._operation_lock = threading.RLock()
@@ -126,6 +133,7 @@ class DaemonState:
         if self.edge_scroll.active:
             self.edge_scroll.stop()
             debug.dbg2("MODE_SWITCH", to="pan", stopped="edge")
+        self._panned_noted_ws = None
         if not self.fetch_baselines():
             self.panning.stop_pan()
             debug.dbg2("PAN_START", baselines=0, result="PAN_NO_BASELINE")
@@ -298,6 +306,8 @@ class DaemonState:
             return "EDGE_NO_WINDOW"
 
         self.edge_scroll_workspace = ws_id
+        # One lookup for the whole gesture; edge_scroll_move runs per frame.
+        self.edge_scroll_addresses = self.navigator.floating_addresses(ws_id)
         if not self._fetch_monitor_rect():
             # Without real geometry the overflow math would run against a
             # default 1920x1080 rect — on multi-monitor setups that causes
@@ -478,6 +488,12 @@ class DaemonState:
             lines.append("  end")
             lines.append("end")
             self.ipc.eval_lua("\n".join(lines))
+            # Panning is a deliberate user action, so this geometry is worth
+            # remembering when canvas is toggled off. Recorded once per session:
+            # this runs on every frame of the pan.
+            if self._panned_noted_ws != self.baseline_workspace:
+                self._panned_noted_ws = self.baseline_workspace
+                self.navigator.note_panned(self.baseline_workspace, set(self.baselines))
         except Exception as e:
             log.warning("window move failed: %s", e)
 
@@ -509,6 +525,10 @@ class DaemonState:
                 f"end\n"
             )
             self.ipc.eval_lua(lua)
+            # Edge scroll moves every floating window on the workspace, so all of
+            # them count as deliberately placed. Uses the addresses captured at
+            # EDGE_START — no IPC in this per-frame path.
+            self.navigator.note_panned(ws_id, self.edge_scroll_addresses)
         except Exception as e:
             log.warning("edge-scroll move failed: %s", e)
 
@@ -547,6 +567,8 @@ def run() -> None:
         protected_apps=cfg["navigation"]["protected_apps"],
         cooldown=cfg["navigation"]["cooldown"],
         preserve_geometry=bool(canvas_cfg.get("preserve_geometry", True)),
+        auto_float=bool(canvas_cfg.get("auto_float", False)),
+        spawn_cfg=canvas_cfg.get("spawn") or {},
     )
 
     daemon_state = DaemonState(
@@ -556,6 +578,8 @@ def run() -> None:
     ipc_server = IpcServer(handler=daemon_state.handle_ipc)
 
     acquire_singleton(ipc_server.sock_path)
+
+    navigator.rehydrate_spawn_rules()
 
     stop_event = threading.Event()
 

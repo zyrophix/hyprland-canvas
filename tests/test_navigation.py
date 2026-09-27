@@ -205,7 +205,13 @@ def test_canvas_toggle_off_with_empty_snapshot_skips_ipc():
         with patch.object(nav, "_get_active_workspace_id", return_value=1):
             assert nav.canvas_toggle() == "CANVAS_ON"
             assert msave.call_args_list[0].args[0] == {
-                1: {"active": True, "tiled": {}, "floating": {}}
+                1: {
+                    "active": True,
+                    "tiled": {},
+                    "floating": {},
+                    "pre_floating": [],
+                    "spawn_rules": [],
+                }
             }
             ipc.reset_mock()
             assert nav.canvas_toggle() == "CANVAS_OFF"
@@ -280,8 +286,8 @@ def test_canvas_toggle_after_restart_is_safe():
         assert '"0x9"' not in lua
 
 
-def test_canvas_toggle_off_captures_floating_geos():
-    """OFF snapshots current floating positions for the next ON restore."""
+def test_canvas_toggle_off_captures_panned_geos_only():
+    """OFF remembers only geometry the user actually panned to."""
     pre_canvas = [
         _make_window("kitty", "0x1", 0, 0, 100, 100, floating=False),
     ]
@@ -298,6 +304,9 @@ def test_canvas_toggle_off_captures_floating_geos():
         nav = Navigator(ipc=ipc, protected_apps=[], cooldown=0.0)
         with patch.object(nav, "_get_active_workspace_id", return_value=1):
             assert nav.canvas_toggle() == "CANVAS_ON"
+
+            # Panned by the user, so the position is a deliberate choice.
+            nav.note_panned(1, {"0x1"})
 
             ipc.send.return_value = json.dumps(during_canvas)
             assert nav.canvas_toggle() == "CANVAS_OFF"
