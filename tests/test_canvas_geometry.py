@@ -533,7 +533,7 @@ def test_panned_windows_keep_the_size_they_were_captured_at():
 
 
 def test_a_remembered_entry_without_geometry_falls_back_to_the_tiled_box():
-    """A state file from before 1.1 keeps addresses and drops geometry.
+    """A state file from before 1.2 keeps addresses and drops geometry.
 
     _parse_snapshot emits {} for such an entry, and applying it verbatim indexed
     a missing "at" — which failed the whole toggle, so canvas could not be

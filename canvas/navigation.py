@@ -782,7 +782,7 @@ class Navigator:
                 # The remembered box verbatim: captured on the last OFF from
                 # where this window actually was, so position and size are one
                 # real state. An entry carrying neither — a state file migrated
-                # from before 1.1 keeps addresses and drops geometry — falls
+                # from before 1.2 keeps addresses and drops geometry — falls
                 # back to the tiled box instead of failing the toggle.
                 box = snapshot[addr]
                 stored_box = stored[addr]

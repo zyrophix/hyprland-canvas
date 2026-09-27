@@ -70,9 +70,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every toggle off, not only when a pan moved a window. With nothing panned
   there was no capture and the old entry was never cleared, so it survived
   every toggle and the next ON applied positions from an earlier session.
-- A state file from before 1.1 no longer stops canvas from turning on. Such a
-  file keeps window addresses and drops their geometry, and applying such an
-  entry verbatim failed the whole toggle. It now falls back to the tiled box.
+- A state file older than 1.2.0 no longer stops canvas from turning on. Such a
+  file keeps window addresses and drops their geometry — 1.2.0 is where
+  `canvas-toggle` started recording geometry at all — and applying such an entry
+  verbatim failed the whole toggle. It now falls back to the tiled box.
   no workspace condition — the workspace id appeared only in the rule's name,
   which is bookkeeping for retracting it later. So a rule registered for one
   canvas workspace floated and centred every window opened in every workspace,

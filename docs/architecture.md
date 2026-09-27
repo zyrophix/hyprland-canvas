@@ -82,7 +82,7 @@ once. Priority per address:
 2. the tiled box the window had at ON, taken from the snapshot.
 
 The record is not applied to windows it has nothing for: a state file migrated
-from before 1.1 keeps window addresses and drops their geometry, and such an
+from before 1.2 keeps window addresses and drops their geometry, and such an
 entry falls back to step 2. `preserve_geometry` selects step 1; with it off
 everything goes straight to the tiled box.
 
