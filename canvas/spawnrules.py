@@ -18,7 +18,6 @@ rules left behind by a crash).
 import json
 import logging
 import re
-from functools import lru_cache
 from typing import Any
 
 from canvas import debug
@@ -252,71 +251,6 @@ def build_rules(
             )
         )
     return rules
-
-
-_NEGATIVE_PREFIX = "negative:"
-
-# Properties we can evaluate locally from j/clients. A rule that also mentions
-# something else (workspace, pid, floating, ...) is still handed to the
-# compositor for new windows, but it cannot be applied to already open ones.
-_LOCAL_MATCH_KEYS = frozenset({"class", "title"})
-
-
-@lru_cache(maxsize=256)
-def _compile(pattern: str) -> re.Pattern[str] | None:
-    try:
-        return re.compile(pattern)
-    except re.error:
-        return None
-
-
-def full_match(pattern: str, value: str) -> bool:
-    """Match the way Hyprland's regex engine does.
-
-    Hyprland uses re2::RE2::FullMatch, so a rule on class "btop" only matches
-    that exact class — a substring needs ".*btop.*". It also supports a
-    "negative:" prefix. Python's re is close enough for these patterns; a
-    pattern it cannot compile is reported and ignored rather than guessed at.
-    """
-    negative = pattern.startswith(_NEGATIVE_PREFIX)
-    body = pattern[len(_NEGATIVE_PREFIX) :] if negative else pattern
-    compiled = _compile(body)
-    if compiled is None:
-        log.warning("spawn match %r is not a valid regex, ignoring", body)
-        return False
-    hit = compiled.fullmatch(value) is not None
-    return not hit if negative else hit
-
-
-def resolve_spec(spawn_cfg: dict[str, Any], props: dict[str, str]) -> str:
-    """Pick the size spec for one already open window.
-
-    Iterates in reverse so the LAST matching rule wins, which is what the
-    compositor does: it applies every matching rule in registration order and
-    the last write wins. Scanning forward would hand an already open window the
-    first rule's size, while a freshly opened one matching the same rules got
-    the last one.
-
-    Rules mentioning a property that j/clients does not carry are skipped: the
-    compositor can match them, we cannot.
-    """
-    default = str(spawn_cfg.get("default", ""))
-    rules = spawn_cfg.get("rules", [])
-    if not isinstance(rules, list):
-        return default
-    for entry in reversed(rules):
-        if not isinstance(entry, dict):
-            continue
-        match = entry.get("match")
-        if not isinstance(match, dict) or not match:
-            continue
-        if not all(key in _LOCAL_MATCH_KEYS for key in match):
-            continue
-        if all(full_match(str(pattern), props.get(key, "")) for key, pattern in match.items()):
-            spec = entry.get("size")
-            if size_spec_error(spec) is None:
-                return str(spec)
-    return default
 
 
 def resolve_workareas(ipc: HyprIPC) -> dict[int, Workarea]:

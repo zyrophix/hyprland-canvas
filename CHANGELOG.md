@@ -108,10 +108,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `navigation.protected_apps` entries must be non-empty. They are matched as a
   substring of the window class, so an empty entry matched every window and
   silently disabled navigation with no diagnostic.
-- When several `canvas.spawn` rules match the same window, the last one now
-  wins, matching the compositor. Previously an already open window was sized
-  with the first matching rule while a newly opened one got the last, so the
-  two could end up different sizes. Documentation updated accordingly.
 - `docs/debugging.md` no longer claims that per-window trace events appear at
   `CANVAS_DEBUG=1`. Only eight events do; the other thirty-two, including
   `CANVAS_GEOMETRY` and every `SPAWN_RULES_*`, need `CANVAS_DEBUG=2`. The old

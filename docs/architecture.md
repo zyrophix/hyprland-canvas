@@ -76,24 +76,27 @@ The daemon therefore does not trust the toggle. After `_set_all_floating` it
 applies its own geometry in a single batched call, which fixes both effects at
 once. Priority per address:
 
-1. a position the user panned to — tracked in `_panned`, filled by the daemon on
-   pan and edge-scroll, because that is a deliberate choice;
-2. the configured `spawn` size, when `auto_float` is on;
-3. the tiled box the window had at ON, taken from the snapshot.
+1. the box the window was last seen in, recorded on every OFF — one real state
+   of that window, position and size together, refreshed each time so it cannot
+   describe a canvas from an earlier session;
+2. the tiled box the window had at ON, taken from the snapshot.
 
-Step 3 is why the recording is not used as a fallback for everything. Geometry
-the compositor invented when a window became floating is not a user choice, and
+The record is not applied to windows it has nothing for: a state file migrated
+from before 1.1 keeps window addresses and drops their geometry, and such an
+entry falls back to step 2. `preserve_geometry` selects step 1; with it off
+everything goes straight to the tiled box.
+
+Only the windows in the snapshot are recorded, so a window that arrived
+floating mid-canvas — the spawn rules make one float at map time — never
+enters the record. Its size came from a rule rather than from the layout, and
 replaying it is what used to make the layout drift further away on every
-toggle. `preserve_geometry` is about the first case only; with it off, panned
-positions are forgotten and everything returns to its tiled box.
+toggle.
 
 Addresses that were already floating at ON are absent from the snapshot and so
 are never touched.
 
 Because the compositor matches windowrule patterns with `re2::RE2::FullMatch`,
 `class: btop` matches only the exact class and a substring needs `.*btop.*`.
-`spawnrules.full_match` reproduces that for windows that are already open, where
-no rule can be applied retroactively; only `class` and `title` are available
-from `j/clients`, so a rule also matching on something else (workspace, pid,
-floating) is skipped for existing windows and left to the compositor for new
-ones.
+The daemon does not match anything itself: match tables are passed through to
+the rule verbatim, and a pattern the compositor rejects fails the registration
+loudly rather than being silently ignored.
