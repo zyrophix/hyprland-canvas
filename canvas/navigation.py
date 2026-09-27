@@ -321,8 +321,14 @@ class Navigator:
             # them float at map time) are canvas members too, so they are tiled
             # back. Addresses already in the snapshot keep their recorded
             # geometry — _toggle_order reads it to restore the original layout.
+            #
+            # Deliberately not gated on a non-empty snapshot: an empty
+            # snapshot is exactly the case where this matters most — canvas
+            # turned on with nothing tiled, then a window spawned floating into
+            # it. Gating here left that window floating and centred forever,
+            # because nothing else in the OFF path tiles it.
             tile_target = snapshot
-            if snapshot and self._auto_float:
+            if self._auto_float:
                 arrived = self._arrived_addresses(workspace_id)
                 extra: dict[str, dict[str, list[int]]] = {
                     a: {} for a in sorted(arrived) if a not in snapshot

@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A window that arrived floating during canvas is now tiled again on
+  `canvas-toggle` even when the snapshot was empty. Canvas turned on with
+  nothing tiled, a window spawned into it, and toggling off left that window
+  floating and centred forever: the arrived-window path was gated on a
+  non-empty snapshot, and nothing else in the OFF path tiles it. The marker
+  still cleared, so the toggle looked like it had done nothing.
 - `canvas.auto_float` no longer shapes windows outside the canvas workspaces it
   was enabled for. Every rule was registered with a `class = ".*"` catch-all and
   no workspace condition — the workspace id appeared only in the rule's name,

@@ -188,6 +188,46 @@ def test_off_tiles_windows_that_arrived_during_canvas():
     assert "0x9" in tiled
 
 
+def test_off_tiles_arrived_window_even_with_an_empty_snapshot():
+    """Canvas turned on with nothing tiled, then a window spawned floating.
+
+    The arrived-window path used to be gated on a non-empty snapshot, which is
+    exactly the case where nothing else would tile it — so the window stayed
+    floating and centred after the toggle, and the marker cleared underneath
+    it, making the toggle look like it had done nothing.
+    """
+    ipc = _ipc_with([])
+    nav = _navigator(ipc)
+    with (
+        patch.object(nav, "_get_active_workspace_id", return_value=1),
+        patch("canvas.navigation.spawnrules.register", return_value=["canvas-spawn-ws1-default"]),
+        patch("canvas.navigation.toggle_state.save"),
+    ):
+        assert nav.canvas_toggle() == "CANVAS_ON"
+    assert nav._canvas_mode_workspaces[1] == {}
+
+    # The spawn rule floats the new window, so it never joins the snapshot.
+    ipc.send.side_effect = lambda cmd: {
+        "j/clients": json.dumps([_window("0x7", floating=True)]),
+        "j/activeworkspace": json.dumps({"id": 1, "name": "1"}),
+        "j/monitors": json.dumps(
+            [{"id": 0, "x": 0, "y": 0, "width": 1920, "height": 1080, "reserved": [0, 0, 0, 0]}]
+        ),
+        "j/workspaces": json.dumps([{"id": 1, "monitorID": 0}]),
+    }.get(cmd, "[]")
+
+    with (
+        patch.object(nav, "_get_active_workspace_id", return_value=1),
+        patch("canvas.navigation.spawnrules.disable"),
+        patch("canvas.navigation.toggle_state.save"),
+        patch.object(nav, "_tile_windows", return_value=True) as tile,
+    ):
+        assert nav.canvas_toggle() == "CANVAS_OFF"
+
+    tile.assert_called_once()
+    assert "0x7" in tile.call_args[0][1]
+
+
 def test_off_does_not_tile_windows_that_were_already_floating():
     ipc = _ipc_with([_window("0x1"), _window("0x2", floating=True)])
     nav = _navigator(ipc)
