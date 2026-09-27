@@ -1,6 +1,6 @@
 # Maintainer: zyrophix
 pkgname=hyprland-canvas
-pkgver=1.5.0
+pkgver=1.6.0
 pkgrel=1
 pkgdesc="Infinite canvas for Hyprland — pan floating windows like an infinite desktop"
 arch=('any')
