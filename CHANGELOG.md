@@ -60,6 +60,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-empty snapshot, and nothing else in the OFF path tiles it. The marker
   still cleared, so the toggle looked like it had done nothing.
 - `canvas.auto_float` no longer shapes windows outside the canvas workspaces it
+- Spawn rules are now taken down when the daemon exits. The compositor's rule
+  engine outlives the process, so a rule left registered kept shaping every
+  window opened on that workspace afterwards, with no daemon left to retract
+  it. The state file keeps the names, so a killed daemon is still cleaned up
+  on the next start.
   was enabled for. Every rule was registered with a `class = ".*"` catch-all and
 - The geometry remembered for the next `canvas-toggle` is now refreshed on
   every toggle off, not only when a pan moved a window. With nothing panned

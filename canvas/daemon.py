@@ -773,6 +773,11 @@ def run() -> None:
         ipc_thread.join(timeout=1)
         with daemon_state._operation_lock:
             daemon_state.restore_baselines()
+            # Spawn rules match the whole workspace and live in the compositor's
+            # engine, which outlives this process. Leaving them behind means
+            # every window opened on that workspace afterwards still arrives
+            # floating and spawn-sized, with no daemon left to undo it.
+            daemon_state.navigator.drop_spawn_rules()
 
     if poller_died:
         # Exit non-zero so a supervisor (e.g. systemd Restart=on-failure)

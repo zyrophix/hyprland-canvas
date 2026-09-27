@@ -659,6 +659,28 @@ class Navigator:
             return
         self._panned.setdefault(workspace_id, set()).update(addresses)
 
+    def drop_spawn_rules(self) -> list[str]:
+        """Take down every spawn rule still registered, for shutdown.
+
+        The compositor's rule engine is global and outlives this process, so a
+        rule left behind keeps matching long after the daemon is gone. It
+        matches the whole workspace, which means every window opened there
+        afterwards still arrives floating, sized to `canvas.spawn.default` and
+        centred, with nothing left anywhere to turn that off.
+
+        The state file is deliberately not rewritten: the names stay recorded
+        so that a daemon which dies before reaching here still gets them
+        disabled by rehydrate_spawn_rules on the next start.
+        """
+        names = [name for rules in self._spawn_rules.values() for name in rules]
+        self._spawn_rules = {}
+        if not names:
+            return []
+        spawnrules.disable(names, self._ipc)
+        if debug.enabled():
+            debug.dbg2("SPAWN_RULES_DROP", count=len(names), names=names)
+        return names
+
     def rehydrate_spawn_rules(self) -> None:
         """Re-arm spawn rules after a daemon restart.
 

@@ -291,3 +291,78 @@ def test_dead_ipc_thread_would_hold_the_singleton_lock(tmp_path, monkeypatch, na
 
     with pytest.raises(SystemExit):
         acquire_singleton(str(sock))
+
+
+# --- spawn rules must not outlive the daemon ---------------------------------
+#
+# The compositor keeps windowrules in a global engine that nothing about our
+# process lifetime touches. A rule left registered keeps matching the whole
+# workspace, so every window opened there afterwards still arrives floating,
+# sized to canvas.spawn.default and centred, with no daemon left to turn it off.
+
+
+def test_drop_spawn_rules_disables_every_registered_name():
+    ipc = MagicMock()
+    navigator = Navigator(ipc=ipc, cooldown=0.0)
+    navigator._spawn_rules = {4: ["canvas-spawn-ws4-default"], 5: ["canvas-spawn-ws5-default"]}
+
+    with patch("canvas.navigation.spawnrules.disable") as disable:
+        names = navigator.drop_spawn_rules()
+
+    assert sorted(names) == ["canvas-spawn-ws4-default", "canvas-spawn-ws5-default"]
+    disable.assert_called_once()
+    assert sorted(disable.call_args[0][0]) == names
+    assert navigator._spawn_rules == {}
+
+
+def test_drop_spawn_rules_with_nothing_registered_does_nothing():
+    navigator = Navigator(ipc=MagicMock(), cooldown=0.0)
+
+    with patch("canvas.navigation.spawnrules.disable") as disable:
+        assert navigator.drop_spawn_rules() == []
+
+    disable.assert_not_called()
+
+
+def test_drop_spawn_rules_leaves_the_state_file_names_for_the_next_start():
+    """A crash must stay recoverable.
+
+    drop_spawn_rules runs in a finally block, so a daemon killed before it
+    reaches there leaves the names registered. The state file is the only record
+    of them, and rehydrate_spawn_rules reads it to disable the leftovers — so
+    the names must stay written even though the rules are already down.
+    """
+    ipc = MagicMock()
+    navigator = Navigator(ipc=ipc, cooldown=0.0)
+    navigator._spawn_rules = {4: ["canvas-spawn-ws4-default"]}
+
+    with (
+        patch("canvas.navigation.spawnrules.disable"),
+        patch("canvas.navigation.toggle_state.save") as save,
+    ):
+        navigator.drop_spawn_rules()
+
+    save.assert_not_called()
+
+
+def test_run_drops_spawn_rules_on_the_way_out():
+    from canvas import daemon
+
+    navigator = MagicMock()
+    stop = threading.Event()
+    stop.set()
+
+    with (
+        patch.object(daemon, "load", return_value=MagicMock()),
+        patch.object(daemon, "Navigator", return_value=navigator),
+        patch.object(daemon, "HyprIPC") as ipc_cls,
+        patch.object(daemon, "IpcServer"),
+        patch.object(daemon, "acquire_singleton"),
+        patch.object(daemon.threading, "Event", return_value=stop),
+        patch.object(daemon.threading, "Thread"),
+        patch.object(daemon, "signal"),
+    ):
+        ipc_cls.from_env.return_value = MagicMock()
+        daemon.run()
+
+    navigator.drop_spawn_rules.assert_called_once()
