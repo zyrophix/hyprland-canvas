@@ -99,7 +99,7 @@ def _parse_snapshot(raw_snap: Any) -> Snapshot:
     return {}
 
 
-def _parse_workspace(raw_ws: Any, version: int) -> WorkspaceState:
+def _parse_workspace(raw_ws: Any) -> WorkspaceState:
     """Parse one workspace entry, migrating old formats.
 
     v4 adds pre_floating and spawn_rules. v3 adds an explicit active bit. v2
@@ -107,13 +107,21 @@ def _parse_workspace(raw_ws: Any, version: int) -> WorkspaceState:
     Older list/bare-dict formats: addresses are
     kept for OFF targeting, geometry is dropped — old geos describe tiled
     slots, which must never be applied as floating positions.
+
+    The version is deliberately not a parameter. This used to branch on the
+    file's `_v`, and a v4 file with `_v` missing, unparsable or negative fell
+    into the oldest branch: it read the section names as if they were window
+    addresses and dropped the geometry, so the canvas came back wrong and the
+    next save wrote five junk addresses into the file. Shape says which format
+    this is far more reliably than a field we wrote ourselves can be trusted to
+    have survived.
     """
-    if version >= 2 and isinstance(raw_ws, dict) and ("tiled" in raw_ws or "floating" in raw_ws):
+    if isinstance(raw_ws, dict) and ("tiled" in raw_ws or "floating" in raw_ws):
         tiled = _parse_snapshot(raw_ws.get("tiled", {}))
         floating = _parse_snapshot(raw_ws.get("floating", {}))
         # v2 had no explicit active bit. Non-empty tiled snapshots were the only
         # states that could represent an active canvas mode. v3 stores it directly.
-        active = raw_ws.get("active", bool(tiled)) if version >= 3 else bool(tiled)
+        active = raw_ws.get("active")
         return {
             "active": active if isinstance(active, bool) else bool(tiled),
             "tiled": tiled,
@@ -170,7 +178,7 @@ def load(path: str | None = None) -> State:
                 ws_id = int(k)
             except Exception:
                 continue
-            state[ws_id] = _parse_workspace(v, version)
+            state[ws_id] = _parse_workspace(v)
         if debug.enabled():
             debug.dbg2(
                 "STATE_LOAD",
