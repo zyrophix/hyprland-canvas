@@ -52,6 +52,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Loading a state file written by a newer format version now logs a warning.
   The parsers accepted any version at or above 2 and read it as the current
   format, so the file was silently misinterpreted and then overwritten.
+- The Hyprland IPC socket is now looked up under `$XDG_RUNTIME_DIR` instead of a
+  hardcoded `/run/user/<uid>`, with the old path kept as the fallback. Hyprland
+  roots its runtime data at that variable and only warns when the value looks
+  non-standard, so on a session with an unusual runtime dir the compositor put
+  its socket somewhere the daemon never looked — while the daemon's own socket
+  and state file, which already read the variable, sat in the right place.
 - `navigation.protected_apps` entries must be non-empty. They are matched as a
   substring of the window class, so an empty entry matched every window and
   silently disabled navigation with no diagnostic.

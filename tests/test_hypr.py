@@ -1,10 +1,28 @@
 """Tests for canvas.hypr module — Hyprland IPC abstraction."""
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from canvas.hypr import HyprIPC, HyprIPCError, eval_lua, get_cursor_pos, send
+from canvas.hypr import (
+    HyprIPC,
+    HyprIPCError,
+    _hypr_socket_path,
+    eval_lua,
+    get_cursor_pos,
+    send,
+)
+
+
+def _fake_socket(root: str, signature: str = "abc123") -> str:
+    """Create a socket-shaped tree under root and return its path."""
+    d = os.path.join(root, "hypr", signature)
+    os.makedirs(d)
+    sock = os.path.join(d, ".socket.sock")
+    with open(sock, "w"):
+        pass
+    return sock
 
 
 def _make_ipc_with_mock(mock_sock: MagicMock) -> HyprIPC:
@@ -227,3 +245,65 @@ def test_module_level_get_active_window_geometry_delegates():
         geo = get_active_window_geometry()
 
     assert geo == ("0x9", 0, 0, 1, 2)
+
+
+# --- socket path resolution -------------------------------------------------
+
+
+def test_socket_path_honours_xdg_runtime_dir(tmp_path, monkeypatch):
+    """Hyprland roots its runtime data at $XDG_RUNTIME_DIR/hypr. A non-standard
+    value must be followed, not overridden by a hardcoded /run/user/<uid>."""
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setenv("HYPRLAND_INSTANCE_SIGNATURE", "abc123")
+    expected = _fake_socket(str(tmp_path))
+
+    assert _hypr_socket_path() == expected
+
+
+def test_socket_path_prefers_the_instance_signature(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setenv("HYPRLAND_INSTANCE_SIGNATURE", "abc123")
+    expected = _fake_socket(str(tmp_path), "abc123")
+    _fake_socket(str(tmp_path), "zzz999")
+
+    assert _hypr_socket_path() == expected
+
+
+def test_socket_path_falls_back_to_the_only_instance(tmp_path, monkeypatch):
+    """One Hyprland instance still resolves without the signature set."""
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
+    expected = _fake_socket(str(tmp_path), "only")
+
+    assert _hypr_socket_path() == expected
+
+
+def test_socket_path_falls_back_to_run_user_when_env_unset(monkeypatch):
+    """With no XDG_RUNTIME_DIR the search is rooted at /run/user/<uid>/hypr.
+
+    Asserted as a property rather than a fixed result: on a machine with
+    Hyprland running the fallback finds the real socket, and on a machine
+    without it the call raises. Both outcomes confirm the same thing — the
+    path it looks under is the legacy one, not the variable's default.
+    """
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
+    uid = os.getuid()
+
+    try:
+        resolved = _hypr_socket_path()
+    except FileNotFoundError as e:
+        assert f"/run/user/{uid}/hypr" in str(e)
+    else:
+        assert resolved.startswith(f"/run/user/{uid}/hypr/")
+
+
+def test_socket_path_error_names_the_directory_it_searched(tmp_path, monkeypatch):
+    """The poller reports this exception three times before giving up, so the
+    message has to say which directory was wrong."""
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
+
+    with pytest.raises(FileNotFoundError) as exc:
+        _hypr_socket_path()
+    assert str(tmp_path / "hypr") in str(exc.value)

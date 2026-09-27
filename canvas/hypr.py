@@ -36,10 +36,20 @@ class HyprIPCError(RuntimeError):
 
 
 def _hypr_socket_path() -> str:
-    """Resolve the Hyprland IPC socket path."""
+    """Resolve the Hyprland IPC socket path.
+
+    Hyprland roots its runtime data at `$XDG_RUNTIME_DIR/hypr` and only warns
+    when that looks non-standard — it proceeds with whatever it is given. This
+    used to hardcode `/run/user/<uid>/hypr` instead, so on a session with a
+    non-standard runtime dir the compositor would place its socket somewhere
+    this never looked, while our own socket and state file — which already read
+    the variable — sat in the right place. The hardcoded path stays as the
+    fallback for when the variable is unset.
+    """
     sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
     uid = os.getuid()
-    base = f"/run/user/{uid}/hypr"
+    run_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{uid}")
+    base = os.path.join(run_dir, "hypr")
     if sig and os.path.exists(f"{base}/{sig}/.socket.sock"):
         return f"{base}/{sig}/.socket.sock"
     if os.path.isdir(base):
@@ -47,7 +57,10 @@ def _hypr_socket_path() -> str:
             sock = f"{base}/{d}/.socket.sock"
             if os.path.exists(sock):
                 return sock
-    raise FileNotFoundError("Hyprland socket not found")
+    # Name the directory: the cursor poller reports this exception three times
+    # before giving up, and a bare "socket not found" leaves the reader to work
+    # out on their own that the path is the thing that is wrong.
+    raise FileNotFoundError(f"Hyprland socket not found under {base}")
 
 
 class HyprIPC:
