@@ -202,6 +202,36 @@ def test_reload_response_names_the_source_file(tmp_path):
     assert path in response
 
 
+def test_reload_reads_the_file_it_reports(tmp_path):
+    """The path in the response is the path that was read, not a later guess.
+
+    `resolve_path` runs before `load`, and the resolved path is what gets read,
+    so a file edited between the two cannot make the two disagree.
+    """
+    path = _write_config(tmp_path, FULL_CONFIG)
+    ds = _state()
+
+    with (
+        patch("canvas.daemon.load", wraps=load) as spy,
+        patch.dict(os.environ, {"XDG_CONFIG_HOME": str(tmp_path)}),
+    ):
+        response = ds.handle_ipc("RELOAD")
+
+    assert spy.call_args.args[0] == path
+    assert path in response
+
+
+def test_apply_config_rejects_a_partial_config():
+    """The mapping requires a merged config, and says so by raising.
+
+    Silently defaulting a missing `edge_scroll` block here would be a second
+    copy of DEFAULT_CONFIG, and the copy that drifts is the one nobody edits.
+    """
+    ds = _state()
+    with pytest.raises(KeyError):
+        ds.apply_config({"speed": 2.0, "max_speed": None, "invert": {"enabled": False}})
+
+
 def test_reload_survives_a_double_call(tmp_path):
     """Reloading twice is idempotent, not cumulative."""
     _write_config(tmp_path, FULL_CONFIG)

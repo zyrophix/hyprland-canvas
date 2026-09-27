@@ -2,13 +2,24 @@
 #
 # This file is documentation, not something the packages install. The Arch
 # PKGBUILD and the wheels deliberately do not autostart anything: enabling a
-# service on a user's machine is not a package's decision to make. Copy this to
-# ~/.config/systemd/user/ and adjust if you want a supervisor.
+# service on a user's machine is not a package's decision to make.
+#
+# Enable it once and the unit is then started and stopped with your graphical
+# session, with no further config:
 #
 #   install -Dm644 examples/hypr-canvasd.service \
 #     ~/.config/systemd/user/hypr-canvasd.service
 #   systemctl --user daemon-reload
-#   systemctl --user enable --now hypr-canvasd.service
+#   systemctl --user enable hypr-canvasd.service
+#
+# That requires something to activate graphical-session.target. Recent
+# Hyprland builds ship hyprland-session.target and do it themselves, but not
+# every packaging does — if the target is never activated, start it from your
+# config instead, e.g. under `hl.on("hyprland.start", ...)`:
+#
+#   hl.exec_cmd("systemctl --user start graphical-session.target")
+#
+# or bypass the target entirely and start the unit directly on session start.
 #
 # Why a supervisor is worth having: the daemon exits non-zero if the cursor
 # poller thread dies, precisely so something restarts it instead of leaving a
@@ -17,16 +28,26 @@
 [Unit]
 Description=Hyprland infinite-canvas panning daemon
 Documentation=https://github.com/zyrophix/hyprland-canvas
-# The daemon drives floating windows through Hyprland's IPC socket. Ordering
-# after the compositor keeps a restart from racing a not-yet-ready socket.
+# The daemon drives floating windows through Hyprland's IPC socket, so it must
+# not start before the session. PartOf also stops it when the session stops.
+# This mirrors the unit Hyprland itself ships for xdg-desktop-portal.
+PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
 Type=simple
 
-# Use an absolute path. A systemd user manager has a minimal PATH and will not
-# necessarily see a pipx/uv tool bin directory.
-ExecStart=%h/.local/bin/canvasd
+# A systemd user manager has a minimal PATH and will not necessarily see a
+# pipx/uv tool bin directory, so state it rather than relying on the caller's.
+# Both install methods are covered: uv tool and pipx put canvasd in
+# ~/.local/bin, the Arch package puts it in /usr/bin.
+#
+# `systemd-analyze verify` reports "Command canvasd is not executable" for this
+# unit. That is an artifact of the check — it resolves ExecStart against the
+# manager's PATH and ignores this Environment= line. systemd applies the line
+# at runtime, so a bare name here is fine.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=canvasd
 
 # Only needed when more than one Hyprland instance is running. With a single
 # instance the daemon finds the socket on its own; with several it would pick
@@ -41,4 +62,4 @@ Restart=on-failure
 RestartSec=2
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target

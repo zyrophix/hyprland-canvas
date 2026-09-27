@@ -104,6 +104,22 @@ Then add the Hyprland keybinds from [Usage](#usage) and drag with SUPER+SHIFT+LM
 canvasd
 ```
 
+The daemon exits non-zero if its cursor poller dies, so that a supervisor
+restarts it instead of leaving a process that still answers `ping` but can never
+pan again. `examples/hypr-canvasd.service` is a ready-made systemd user unit
+for that. It is an example only — no package installs or enables a service:
+
+```bash
+install -Dm644 examples/hypr-canvasd.service ~/.config/systemd/user/hypr-canvasd.service
+systemctl --user daemon-reload
+systemctl --user enable hypr-canvasd.service
+```
+
+Enabling wires the unit into `graphical-session.target`, so it starts and stops
+with your session. If nothing in your setup activates that target, start the
+unit from your Hyprland config instead (e.g. under `hl.on("hyprland.start", ...)`
+with `hl.exec_cmd("systemctl --user start hypr-canvasd.service")`).
+
 ### 2. Add Hyprland keybinds
 
 Hyprland 0.55+ uses Lua for config. Add these binds:

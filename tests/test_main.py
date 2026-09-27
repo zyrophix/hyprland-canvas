@@ -86,6 +86,24 @@ def test_ctl_main_error_response_exits():
             assert e.code == 1
 
 
+def test_ctl_main_unknown_command_response_exits():
+    """canvas-ctl exits 1 when the daemon does not know the command.
+
+    That is what a daemon too old to have the command answers. Exiting 0 would
+    tell a script the command had been accepted by a daemon that never ran it.
+    """
+    with (
+        patch.object(sys, "argv", ["canvas-ctl", "reload"]),
+        patch("canvas.ipc.send_command", return_value="UNKNOWN: RELOAD"),
+        patch("builtins.print"),
+    ):
+        try:
+            ctl_main()
+            raise AssertionError("should have exited")
+        except SystemExit as e:
+            assert e.code == 1
+
+
 def test_daemon_main_calls_run():
     """daemon_main delegates to daemon.run()."""
     with patch("canvas.daemon.run") as mock_run:

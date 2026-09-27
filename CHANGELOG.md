@@ -19,7 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wants a supervisor. The daemon exits non-zero when the cursor poller dies so
   that something restarts it; until now the repository shipped the mechanism
   without the thing that uses it. It is an example only: the Arch package and
-  the wheels still install no service and enable nothing.
+  the wheels still install no service and enable nothing. The unit is bound to
+  `graphical-session.target` with `PartOf` and `After`, matching the unit
+  Hyprland itself ships for `xdg-desktop-portal`, so it starts and stops with
+  the session and never before it.
 
 ### Fixed
 
@@ -33,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   list sent people looking for events the daemon never printed at that level.
 - Config errors now name the file that produced them, so a reload that fails
   says which copy to fix.
+- `canvas-ctl` no longer exits 0 when the daemon answers `UNKNOWN`, which is
+  what a daemon too old to know the command replies. Updating the CLI while an
+  older daemon still ran made a script believe a command had been applied when
+  the daemon had never heard of it.
 
 ## [1.5.0] — 2026-09-27
 

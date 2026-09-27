@@ -63,7 +63,11 @@ def _send(cmd: str) -> None:
     from canvas.ipc import send_command
 
     response = send_command(cmd)
-    if not response or response.startswith("ERROR"):
+    # UNKNOWN means the daemon is too old to know the command. It is a failure
+    # like any other: exiting 0 there would tell a script that a newer CLI's
+    # command had been accepted by an older daemon that never ran it.
+    failed = not response or response.startswith(("ERROR", "UNKNOWN"))
+    if failed:
         print(response or "ERROR: empty response from daemon", file=sys.stderr)
         sys.exit(1)
     print(response)

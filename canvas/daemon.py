@@ -68,29 +68,36 @@ class DaemonState:
         mapping would be the classic way for a reloaded key to quietly mean
         something different from the same key at boot.
 
-        Every config key lands on a plain attribute, so a reload takes effect
-        on the next frame without rebuilding anything. Callers must already
-        hold `_operation_lock`.
+        `cfg` must be the merged mapping `config.load` returns, so every key
+        below is present. That is why there are no `.get` fallbacks here:
+        restating a default here would be a second copy of `DEFAULT_CONFIG`,
+        and the copy that drifts is the one nobody edits.
+
+        Every key lands on a plain attribute, so a reload takes effect on the
+        next frame without rebuilding anything. Takes the operation lock
+        itself: it is an RLock, so calling this while already holding it — as
+        the IPC handler does — costs nothing.
         """
-        self.panning.speed = cfg["speed"]
-        self.panning.max_speed = cfg.get("max_speed")
-        self.panning.inverted = cfg["invert"]["enabled"]
+        with self._operation_lock:
+            self.panning.speed = cfg["speed"]
+            self.panning.max_speed = cfg["max_speed"]
+            self.panning.inverted = cfg["invert"]["enabled"]
 
-        edge_cfg = cfg.get("edge_scroll", {})
-        self.edge_scroll.ramp_distance = edge_cfg.get("ramp_distance", 50)
-        self.edge_scroll.speed = edge_cfg.get("speed", 20.0)
-        self.edge_scroll.max_speed = edge_cfg.get("max_speed")
-        self.edge_scroll.enabled = edge_cfg.get("enabled", True)
-        self.edge_scroll.grab_dead_zone = edge_cfg.get("grab_dead_zone", 5)
+            edge_cfg = cfg["edge_scroll"]
+            self.edge_scroll.ramp_distance = edge_cfg["ramp_distance"]
+            self.edge_scroll.speed = edge_cfg["speed"]
+            self.edge_scroll.max_speed = edge_cfg["max_speed"]
+            self.edge_scroll.enabled = edge_cfg["enabled"]
+            self.edge_scroll.grab_dead_zone = edge_cfg["grab_dead_zone"]
 
-        nav_cfg = cfg["navigation"]
-        self.navigator._protected_apps = [a.lower() for a in nav_cfg["protected_apps"]]
-        self.navigator._cooldown = nav_cfg["cooldown"]
+            nav_cfg = cfg["navigation"]
+            self.navigator._protected_apps = [a.lower() for a in nav_cfg["protected_apps"]]
+            self.navigator._cooldown = nav_cfg["cooldown"]
 
-        canvas_cfg = cfg.get("canvas", {})
-        self.navigator._preserve_geometry = bool(canvas_cfg.get("preserve_geometry", True))
-        self.navigator._auto_float = bool(canvas_cfg.get("auto_float", False))
-        self.navigator._spawn_cfg = canvas_cfg.get("spawn") or {}
+            canvas_cfg = cfg["canvas"]
+            self.navigator._preserve_geometry = canvas_cfg["preserve_geometry"]
+            self.navigator._auto_float = canvas_cfg["auto_float"]
+            self.navigator._spawn_cfg = canvas_cfg["spawn"]
 
     def _fetch_monitor_rect(self) -> bool:
         """Fetch focused monitor geometry for edge-scroll. True on success."""
@@ -424,8 +431,13 @@ class DaemonState:
         server logs handler exceptions at debug level and sends the client
         nothing, which would surface as a bare "empty response from daemon".
         """
+        # Resolving first and reading that exact path means the file named in
+        # the response is provably the one that was read. Letting `load` search
+        # and asking `resolve_path` afterwards would leave a window where the
+        # file changes in between and the two disagree.
+        source = resolve_path()
         try:
-            cfg = load()
+            cfg = load(source)
         except ConfigError as e:
             log.warning("reload rejected: %s", e)
             return f"ERROR:CONFIG_INVALID: {e}"
@@ -437,7 +449,6 @@ class DaemonState:
         # sent until it is done.
         self.navigator.rehydrate_spawn_rules()
 
-        source = resolve_path()
         log.info("reloaded config from %s", source or "built-in defaults")
         return f"OK: reloaded ({source})" if source else "OK: reloaded (built-in defaults)"
 
@@ -616,8 +627,7 @@ def run() -> None:
         panning=state, edge_scroll=edge_scroll, navigator=navigator, ipc=ipc
     )
     # Same call `canvas-ctl reload` makes, so boot and reload cannot diverge.
-    with daemon_state._operation_lock:
-        daemon_state.apply_config(cfg)
+    daemon_state.apply_config(cfg)
 
     ipc_server = IpcServer(handler=daemon_state.handle_ipc)
 
