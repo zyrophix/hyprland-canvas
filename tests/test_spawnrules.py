@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from canvas import spawnrules
 from canvas.spawnrules import (
     SpawnRuleError,
     build_rules,
@@ -490,3 +491,30 @@ def test_fractional_pixels_are_rejected():
     assert "whole numbers" in str(size_spec_error("100.5x50"))
     with pytest.raises(SpawnRuleError):
         parse_size("100.5x50", WORKAREA)
+
+
+def test_disable_escapes_rule_names():
+    """A name with a quote or a newline must not break the batch.
+
+    The names come from the state file, which is hand-editable, and the whole
+    batch is submitted as one eval — so a single unescaped name is a Lua syntax
+    error that leaves every real rule in the batch still enabled. This is the
+    same escaping every other interpolation on this path uses, and the one place
+    that was skipping it.
+    """
+    ipc = _ipc({})
+    hostile = 'canvas-spawn-ws4"\nprint(1)\n--'
+
+    spawnrules.disable([hostile], ipc)
+
+    lua = ipc.eval_lua.call_args[0][0]
+    assert "\n" not in lua.split("enabled = false")[0].split("name = ")[1]
+    assert '\\"' in lua
+    assert "\\n" in lua
+
+
+def test_disable_escapes_a_plain_name_without_changing_it():
+    """Escaping must not corrupt the ordinary case."""
+    ipc = _ipc({})
+    spawnrules.disable(["canvas-spawn-ws4-default"], ipc)
+    assert 'name = "canvas-spawn-ws4-default"' in ipc.eval_lua.call_args[0][0]

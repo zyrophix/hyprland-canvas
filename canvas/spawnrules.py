@@ -342,7 +342,11 @@ def disable(names: list[str], ipc: HyprIPC) -> bool:
     """Disable previously registered rules. Best effort; True when all ran."""
     if not names:
         return True
-    lines = [f'hl.window_rule{{ name = "{name}", enabled = false }}' for name in names]
+    # Names come from the state file, which is a hand-editable file, and the
+    # whole batch is one eval: a name carrying a quote or a newline would abort
+    # the chunk and leave every real rule in the batch enabled. _lua_value is
+    # what every other interpolation on this path uses.
+    lines = [f"hl.window_rule{{ name = {_lua_value(name)}, enabled = false }}" for name in names]
     try:
         ipc.eval_lua("\n".join(lines))
     except Exception as e:
