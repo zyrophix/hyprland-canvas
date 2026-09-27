@@ -355,32 +355,6 @@ def test_a_window_outside_the_snapshot_is_not_remembered():
     assert "0x9" not in nav._floating_geos[1]
 
 
-def test_panned_geometry_is_remembered_on_off():
-    nav = _navigator(_ipc([_window("0x1", 17, 61, 463, 493)]))
-    _on(nav, register=False)
-    nav.note_panned(1, {"0x1"})
-
-    assert _off(nav) == "CANVAS_OFF"
-
-    assert nav._floating_geos[1]["0x1"] == {"at": [17, 61], "size": [463, 493]}
-
-
-def test_panned_set_is_cleared_after_toggle_off():
-    nav = _navigator(_ipc([_window("0x1", 17, 61, 463, 493)]))
-    _on(nav, register=False)
-    nav.note_panned(1, {"0x1"})
-
-    _off(nav)
-
-    assert nav._panned == {}
-
-
-def test_note_panned_ignores_empty_input():
-    nav = _navigator(_ipc([]))
-    nav.note_panned(1, set())
-    assert nav._panned == {}
-
-
 # --- spawn sizing applies to existing windows too ---------------------------
 
 
@@ -495,20 +469,6 @@ def _daemon_state():
     return state, navigator, ipc
 
 
-def test_edge_scroll_move_issues_no_lookup_per_frame():
-    state, navigator, _ipc_obj = _daemon_state()
-    state.edge_scroll_workspace = 1
-    state.edge_scroll_addresses = {"0x1", "0x2"}
-    state.edge_scroll._dragged_addr = "0x1"
-
-    for _ in range(30):
-        state.edge_scroll_move(3, 0)
-
-    navigator.floating_addresses.assert_not_called()
-    assert navigator.note_panned.call_count == 30
-    navigator.note_panned.assert_called_with(1, {"0x1", "0x2"})
-
-
 def test_edge_scroll_addresses_are_captured_once_at_start():
     state, navigator, _ipc_obj = _daemon_state()
     state.edge_scroll_workspace = 1
@@ -528,33 +488,6 @@ def test_edge_scroll_addresses_are_captured_once_at_start():
 
     assert state.edge_scroll_addresses == {"0x1", "0x2"}
     navigator.floating_addresses.assert_called_once_with(1)
-
-
-def test_pan_records_panned_addresses_once_per_session():
-    state, navigator, _ipc_obj = _daemon_state()
-    state.baselines = {"0x1": (0, 0), "0x2": (10, 10)}
-    state.baseline_workspace = 1
-
-    for _ in range(30):
-        state.move_windows_to_delta(5, 0)
-
-    assert navigator.note_panned.call_count == 1
-    navigator.note_panned.assert_called_once_with(1, {"0x1", "0x2"})
-
-
-def test_pan_records_again_in_a_new_session():
-    state, navigator, _ipc_obj = _daemon_state()
-    state.baselines = {"0x1": (0, 0)}
-    state.baseline_workspace = 1
-    state.move_windows_to_delta(5, 0)
-
-    state._handle_pan_start = lambda: None
-    state._panned_noted_ws = None
-    state.baselines = {"0x1": (0, 0), "0x9": (1, 1)}
-    state.move_windows_to_delta(5, 0)
-
-    assert navigator.note_panned.call_count == 2
-    assert navigator.note_panned.call_args[0][1] == {"0x1", "0x9"}
 
 
 def test_a_window_that_arrived_mid_canvas_never_enters_the_remembered_set():

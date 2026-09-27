@@ -57,7 +57,6 @@ class DaemonState:
         self.edge_scroll_excluded: set[str] = set()
         # Workspace already reported as panned, so a long pan records once
         # instead of on every frame.
-        self._panned_noted_ws: int | None = None
         # Serializes compositor mutations from the IPC thread with main-loop
         # pan/edge moves. State objects retain their own fine-grained locks.
         # Addresses to leave alone when panning, from window_pan_excludes.
@@ -178,7 +177,6 @@ class DaemonState:
         if self.edge_scroll.active:
             self.edge_scroll.stop()
             debug.dbg2("MODE_SWITCH", to="pan", stopped="edge")
-        self._panned_noted_ws = None
         if not self.fetch_baselines():
             self.panning.stop_pan()
             debug.dbg2("PAN_START", baselines=0, result="PAN_NO_BASELINE")
@@ -608,12 +606,6 @@ class DaemonState:
             lines.append("  end")
             lines.append("end")
             self.ipc.eval_lua("\n".join(lines))
-            # Panning is a deliberate user action, so this geometry is worth
-            # remembering when canvas is toggled off. Recorded once per session:
-            # this runs on every frame of the pan.
-            if self._panned_noted_ws != self.baseline_workspace:
-                self._panned_noted_ws = self.baseline_workspace
-                self.navigator.note_panned(self.baseline_workspace, set(self.baselines))
         except Exception as e:
             log.warning("window move failed: %s", e)
 
@@ -651,13 +643,6 @@ class DaemonState:
                 ]
             )
             self.ipc.eval_lua("\n".join(lua))
-            # Edge scroll moves the other floating windows, so those count as
-            # deliberately placed. Uses the addresses captured at EDGE_START —
-            # no IPC in this per-frame path. Skipped windows are subtracted:
-            # they did not move, so their geometry is not a user choice.
-            self.navigator.note_panned(
-                ws_id, self.edge_scroll_addresses - self.edge_scroll_excluded
-            )
         except Exception as e:
             log.warning("edge-scroll move failed: %s", e)
 

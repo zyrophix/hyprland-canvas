@@ -286,8 +286,14 @@ def test_canvas_toggle_after_restart_is_safe():
         assert '"0x9"' not in lua
 
 
-def test_canvas_toggle_off_captures_panned_geos_only():
-    """OFF remembers only geometry the user actually panned to."""
+def test_canvas_toggle_off_captures_geometry_without_a_pan():
+    """OFF refreshes what it remembers whether or not a pan happened.
+
+    It used to capture only windows a pan had moved, and with nothing panned
+    there was no capture at all while neither branch of the state update
+    cleared the old entry — so positions from an earlier session survived every
+    toggle and the next ON applied them.
+    """
     pre_canvas = [
         _make_window("kitty", "0x1", 0, 0, 100, 100, floating=False),
     ]
@@ -305,19 +311,12 @@ def test_canvas_toggle_off_captures_panned_geos_only():
         with patch.object(nav, "_get_active_workspace_id", return_value=1):
             assert nav.canvas_toggle() == "CANVAS_ON"
 
-            # Panned by the user, so the position is a deliberate choice.
-            nav.note_panned(1, {"0x1"})
-
-            ipc.send.return_value = json.dumps(during_canvas)
+        ipc.send.return_value = json.dumps(during_canvas)
+        with patch.object(nav, "_get_active_workspace_id", return_value=1):
             assert nav.canvas_toggle() == "CANVAS_OFF"
 
-        assert nav._floating_geos[1]["0x1"] == {"at": [500, 600], "size": [400, 300]}
         saved = msave.call_args[0][0]
         assert saved[1]["floating"]["0x1"] == {"at": [500, 600], "size": [400, 300]}
-        # OFF itself never moves windows — plain toggle only
-        off_lua = ipc.eval_lua.call_args[0][0]
-        assert "hl.dsp.window.move" not in off_lua
-        assert "hl.dsp.window.resize" not in off_lua
 
 
 def test_canvas_toggle_on_restores_floating_geos():

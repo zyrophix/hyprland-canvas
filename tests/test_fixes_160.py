@@ -122,20 +122,6 @@ def test_edge_scroll_lua_skips_excluded_addresses():
     assert "0x1" not in skip_table  # movable, must not be skipped
 
 
-def test_edge_scroll_excluded_windows_are_not_noted_as_panned():
-    """They did not move, so their geometry is not a user choice to restore."""
-    ipc = MagicMock()
-    ds = _state(ipc)
-    ds.edge_scroll_workspace = 1
-    ds.edge_scroll_addresses = {"0x1", "0x2"}
-    ds.edge_scroll_excluded = {"0x2"}
-    ds.edge_scroll._dragged_addr = "0x1"
-
-    ds.edge_scroll_move(10, 20)
-
-    assert ds.navigator._panned[1] == {"0x1"}
-
-
 # --- validation -------------------------------------------------------------
 
 

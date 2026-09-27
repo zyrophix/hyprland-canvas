@@ -62,7 +62,6 @@ class Navigator:
         self._canvas_mode_workspaces: dict[int, dict[str, dict[str, list[int]]]] = {}
         self._floating_geos: dict[int, dict[str, dict[str, list[int]]]] = {}
         self._pre_floating: dict[int, set[str]] = {}
-        self._panned: dict[int, set[str]] = {}
         self._spawn_rules: dict[int, list[str]] = {}
         raw = toggle_state.load()
         for ws, sections in raw.items():
@@ -358,8 +357,6 @@ class Navigator:
                 next_floating.pop(workspace_id, None)
             next_pre = dict(self._pre_floating)
             next_pre.pop(workspace_id, None)
-            next_panned = dict(self._panned)
-            next_panned.pop(workspace_id, None)
             stale_rules = self._spawn_rules.get(workspace_id, [])
             next_rules = dict(self._spawn_rules)
             next_rules.pop(workspace_id, None)
@@ -403,7 +400,6 @@ class Navigator:
             self._canvas_mode_workspaces = next_modes
             self._floating_geos = next_floating
             self._pre_floating = next_pre
-            self._panned = next_panned
             self._spawn_rules = next_rules
             if debug.enabled():
                 debug.dbg2(
@@ -646,18 +642,6 @@ class Navigator:
     def floating_addresses(self, workspace_id: int) -> set[str]:
         """Addresses of the floating windows on a workspace, empty on failure."""
         return self._snapshot_floating_addresses(workspace_id) or set()
-
-    def note_panned(self, workspace_id: int, addresses: set[str]) -> None:
-        """Record that the user moved these windows while canvas was on.
-
-        Only such geometry is worth restoring later. Geometry that Hyprland
-        produced on its own when a window became floating is not a choice the
-        user made, and replaying it is what used to make canvas-toggle scramble
-        the layout.
-        """
-        if not addresses:
-            return
-        self._panned.setdefault(workspace_id, set()).update(addresses)
 
     def drop_spawn_rules(self) -> list[str]:
         """Take down every spawn rule still registered, for shutdown.
