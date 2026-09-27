@@ -243,8 +243,7 @@ moves.
 With `canvas.auto_float: true`, a window opened while a workspace is in canvas
 mode arrives already floating, sized and centred — the compositor applies a
 windowrule at map time, so there is no visible reflow and no polling in the
-daemon. The same sizing is applied to the windows that were already open when
-canvas was enabled, so both end up the same size.
+daemon.
 
 Sizes are either pixels (`910x930`) or a percentage of the workarea of the
 monitor that owns the workspace (`30%x40%`); they are clamped so a window can
