@@ -139,12 +139,12 @@ def test_bool_and_numeric_match_values_render_bare():
     cfg = {
         "center": True,
         "default": "600x400",
-        "rules": [{"match": {"floating": False, "workspace": 3}, "size": "600x400"}],
+        "rules": [{"match": {"floating": False, "pid": 3}, "size": "600x400"}],
     }
     _name, lua = build_rules(cfg, 1, WORKAREA)[1]
 
     assert "floating = false" in lua
-    assert "workspace = 3" in lua
+    assert "pid = 3" in lua
 
 
 def test_match_string_values_are_escaped():
@@ -497,3 +497,74 @@ def test_reverse_scan_still_skips_rules_we_cannot_evaluate():
         ],
     }
     assert resolve_spec(cfg, {"class": "btop"}) == "100x100"
+
+
+# --- every rule is scoped to the workspace it is registered for -------------
+
+
+def test_default_rule_is_scoped_to_the_workspace():
+    """The catch-all used to be `class = ".*"` with no workspace condition, so a
+    rule registered for one canvas workspace shaped windows in every workspace.
+    """
+    cfg = {"center": True, "default": "30%x40%"}
+    for name, lua in build_rules(cfg, 4, WORKAREA):
+        assert "workspace = 4" in lua, lua
+        assert name == "canvas-spawn-ws4-default"
+
+
+def test_override_rules_are_scoped_too():
+    cfg = {
+        "center": True,
+        "default": "600x400",
+        "rules": [{"match": {"class": "btop"}, "size": "910x930"}],
+    }
+    for _name, lua in build_rules(cfg, 7, WORKAREA):
+        assert "workspace = 7" in lua, lua
+
+
+def test_two_workspaces_get_distinct_workspace_conditions():
+    """Otherwise the second registration wins everywhere, sizing windows on the
+    first workspace against the second workspace's workarea."""
+    cfg = {"center": True, "default": "30%x40%"}
+    ws4 = build_rules(cfg, 4, WORKAREA)[0][1]
+    ws9 = build_rules(cfg, 9, WORKAREA)[0][1]
+
+    assert "workspace = 4" in ws4
+    assert "workspace = 9" in ws9
+    assert "workspace = 4" not in ws9
+
+
+def test_rule_declaring_a_different_workspace_is_rejected():
+    """It cannot be satisfied by a rule registered for this workspace, so it is
+    an error rather than a match that never fires."""
+    cfg = {
+        "center": True,
+        "default": "600x400",
+        "rules": [{"match": {"class": "btop", "workspace": 3}, "size": "910x930"}],
+    }
+    with pytest.raises(SpawnRuleError) as exc:
+        build_rules(cfg, 1, WORKAREA)
+    assert "workspace 1" in str(exc.value)
+
+
+def test_rule_repeating_its_own_workspace_is_accepted():
+    cfg = {
+        "center": True,
+        "default": "600x400",
+        "rules": [{"match": {"class": "btop", "workspace": 1}, "size": "910x930"}],
+    }
+    rules = build_rules(cfg, 1, WORKAREA)
+    assert len(rules) == 2
+    assert "workspace = 1" in rules[1][1]
+
+
+def test_match_must_be_a_mapping():
+    """build_rules now validates the shape, since it has to add a key to it."""
+    cfg = {
+        "center": True,
+        "default": "600x400",
+        "rules": [{"match": "btop", "size": "910x930"}],
+    }
+    with pytest.raises(SpawnRuleError) as exc:
+        build_rules(cfg, 1, WORKAREA)
+    assert "must be a non-empty mapping" in str(exc.value)

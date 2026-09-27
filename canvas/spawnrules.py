@@ -180,6 +180,29 @@ def _rule_lua(name: str, match: object, spec: str, workarea: Workarea, center: b
     return f"_canvas_spawn_reg{{ {', '.join(fields)} }}"
 
 
+def _scoped_match(match: dict[str, Any], ws_id: int, where: str) -> dict[str, Any]:
+    """Constrain a rule's match to the workspace it was registered for.
+
+    Every rule we register belongs to exactly one workspace — the name says
+    `ws<N>` and `disable` retracts it by that name. Without this constraint the
+    catch-all (`class = ".*"`) matched every window in every workspace, so
+    opening kitty on an ordinary workspace would still float and centre it.
+
+    A rule that names a different workspace cannot be satisfied by a rule the
+    daemon registered for this one, so that is an error rather than a silently
+    dead match.
+    """
+    scoped = dict(match)
+    declared = scoped.get("workspace")
+    if declared is not None and declared != ws_id:
+        raise SpawnRuleError(
+            f"{where}: match.workspace is {declared!r} but this rule is registered for "
+            f"workspace {ws_id}; drop the key to inherit the workspace it is listed under"
+        )
+    scoped["workspace"] = ws_id
+    return scoped
+
+
 def build_rules(
     spawn_cfg: dict[str, Any],
     ws_id: int,
@@ -187,14 +210,24 @@ def build_rules(
 ) -> list[tuple[str, str]]:
     """Build (name, lua) pairs for one workspace, catch-all first.
 
-    The catch-all matches any class; user overrides follow in config order and
-    win because the compositor applies matching rules in registration order.
+    The catch-all matches any class on that workspace; user overrides follow in
+    config order and win because the compositor applies matching rules in
+    registration order.
     """
     center = bool(spawn_cfg.get("center", True))
     rules: list[tuple[str, str]] = []
     name = default_rule_name(ws_id)
     rules.append(
-        (name, _rule_lua(name, {"class": ".*"}, spawn_cfg.get("default", ""), workarea, center))
+        (
+            name,
+            _rule_lua(
+                name,
+                _scoped_match({"class": ".*"}, ws_id, "canvas.spawn.default"),
+                spawn_cfg.get("default", ""),
+                workarea,
+                center,
+            ),
+        )
     )
 
     raw_rules = spawn_cfg.get("rules", [])
@@ -207,7 +240,21 @@ def build_rules(
         spec = entry.get("size")
         if size_spec_error(spec):
             raise SpawnRuleError(f"canvas.spawn.rules[{index}].size: {size_spec_error(spec)}")
-        rules.append((name, _rule_lua(name, entry.get("match"), str(spec), workarea, center)))
+        match = entry.get("match")
+        if not isinstance(match, dict) or not match:
+            raise SpawnRuleError(f"canvas.spawn.rules[{index}].match must be a non-empty mapping")
+        rules.append(
+            (
+                name,
+                _rule_lua(
+                    name,
+                    _scoped_match(match, ws_id, f"canvas.spawn.rules[{index}]"),
+                    str(spec),
+                    workarea,
+                    center,
+                ),
+            )
+        )
     return rules
 
 

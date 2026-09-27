@@ -33,6 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `canvas.auto_float` no longer shapes windows outside the canvas workspaces it
+  was enabled for. Every rule was registered with a `class = ".*"` catch-all and
+  no workspace condition — the workspace id appeared only in the rule's name,
+  which is bookkeeping for retracting it later. So a rule registered for one
+  canvas workspace floated and centred every window opened in every workspace,
+  and with two canvas workspaces open the second registration's size won
+  globally, sizing windows on the first against the second's workarea. Rules
+  are now scoped to the workspace they are registered for, and a rule naming a
+  different workspace is rejected rather than silently never matching.
 - A fullscreen floating window is no longer dragged along by the camera. The
   `fullscreen` field from `j/clients` was read in exactly one place, so a
   fullscreen call or video would travel off-screen with every pan frame.
