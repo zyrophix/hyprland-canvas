@@ -120,6 +120,13 @@ with your session. If nothing in your setup activates that target, start the
 unit from your Hyprland config instead (e.g. under `hl.on("hyprland.start", ...)`
 with `hl.exec_cmd("systemctl --user start hypr-canvasd.service")`).
 
+**Restarting Hyprland requires restarting the daemon too.** The compositor's IPC
+socket path is resolved once at startup and never re-resolved, so after a
+compositor restart the old path is gone: the cursor poller fails, the daemon
+exits non-zero, and whatever restarts it picks up the new path. Started by hand,
+that means running `canvasd` again yourself; with the unit enabled it happens on
+its own.
+
 ### 2. Add Hyprland keybinds
 
 Hyprland 0.55+ uses Lua for config. Add these binds:
@@ -190,6 +197,9 @@ navigation:
     - brave-browser
     - chromium
     - firefox
+window_pan_excludes: []        # windows left in place while the canvas pans,
+                               # matched as a substring of the window class.
+                               # Fullscreen windows are always excluded.
 canvas:
   preserve_geometry: true     # remember where you panned windows to, and restore
                                # them on the next ON; windows you did not move go

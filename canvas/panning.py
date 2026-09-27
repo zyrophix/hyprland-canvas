@@ -155,8 +155,18 @@ class EdgeScrollState:
     (j/activewindow — during an interactive drag the dragged window is
     focused) and feeds it via update_geometry(). Nothing is derived from
     cursor math: if the window does not really move, the camera never
-    moves. This mirrors compositor-level implementations (driftwm, hevel)
-    where edge pan engages only inside a confirmed move grab.
+    moves. Compositor-level implementations gate edge pan on a confirmed
+    move grab for the same reason (driftwm's grab, hevel's 1→2 mouse
+    chord): it must not arm while the user is only moving the pointer.
+
+    Two things here differ from those implementations and are deliberate.
+    Their signal is the pointer's distance from the viewport edge; ours is the
+    dragged window's overflow past the monitor edge, which stays coupled to
+    what the user can actually see — and which saturates once the compositor
+    clamps the window, so the ramp cannot respond to how hard the push is.
+    And the per-edge direction gating below (each side only pans while the
+    window moves toward it) has no counterpart in either: driftwm normalises
+    the diagonal without a direction check, hevel has no camera at all.
 
     Guards, in order:
     - address mismatch → drag lost → auto-stop
