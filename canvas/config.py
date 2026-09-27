@@ -190,15 +190,8 @@ def _validate_spawn(spawn: object) -> list[str]:
     return errors
 
 
-def load(path: str | None = None, skip_user: bool = False) -> dict[str, Any]:
-    """Load config from YAML file, merging with defaults.
-
-    Search order:
-        1. Explicit path
-        2. ~/.config/canvas/config.yml (unless skip_user=True)
-        3. <project_dir>/config.yml (bundled default)
-        4. Hardcoded DEFAULT_CONFIG
-    """
+def _candidates(path: str | None = None, skip_user: bool = False) -> list[str]:
+    """Config search order: explicit path, user XDG, bundled project file."""
     candidates: list[str] = []
 
     if path:
@@ -210,18 +203,48 @@ def load(path: str | None = None, skip_user: bool = False) -> dict[str, Any]:
 
     candidates.append(str(Path(__file__).resolve().parent.parent / "config.yml"))
 
-    for candidate in candidates:
+    return candidates
+
+
+def resolve_path() -> str | None:
+    """Path `load` would read, or None when only built-in defaults apply.
+
+    Lets `canvas-ctl reload` name the file it picked, so a user editing the
+    wrong copy is not left guessing why nothing changed.
+    """
+    for candidate in _candidates():
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def load(path: str | None = None, skip_user: bool = False) -> dict[str, Any]:
+    """Load config from YAML file, merging with defaults.
+
+    Search order:
+        1. Explicit path
+        2. ~/.config/canvas/config.yml (unless skip_user=True)
+        3. <project_dir>/config.yml (bundled default)
+        4. Hardcoded DEFAULT_CONFIG
+
+    Every failure names the file, because a reload that reports "invalid
+    config" without saying which file is invalid is not actionable.
+    """
+    for candidate in _candidates(path, skip_user):
         if os.path.isfile(candidate):
             with open(candidate) as f:
-                user_cfg = yaml.safe_load(f)
+                try:
+                    user_cfg = yaml.safe_load(f)
+                except yaml.YAMLError as e:
+                    raise ConfigError(f"{candidate}: invalid YAML: {e}") from e
             if user_cfg is None:
                 user_cfg = {}
             if not isinstance(user_cfg, dict):
-                raise ConfigError("config root must be a mapping")
+                raise ConfigError(f"{candidate}: config root must be a mapping")
             cfg = _deep_merge(DEFAULT_CONFIG, user_cfg)
             problems = validate(cfg)
             if problems:
-                raise ConfigError("\n".join(problems))
+                raise ConfigError("\n".join(f"{candidate}: {p}" for p in problems))
             return cfg
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)

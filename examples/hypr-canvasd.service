@@ -1,0 +1,44 @@
+# hyprland-canvas daemon — example systemd user unit.
+#
+# This file is documentation, not something the packages install. The Arch
+# PKGBUILD and the wheels deliberately do not autostart anything: enabling a
+# service on a user's machine is not a package's decision to make. Copy this to
+# ~/.config/systemd/user/ and adjust if you want a supervisor.
+#
+#   install -Dm644 examples/hypr-canvasd.service \
+#     ~/.config/systemd/user/hypr-canvasd.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now hypr-canvasd.service
+#
+# Why a supervisor is worth having: the daemon exits non-zero if the cursor
+# poller thread dies, precisely so something restarts it instead of leaving a
+# process that still answers `canvas-ctl ping` but can never pan again.
+
+[Unit]
+Description=Hyprland infinite-canvas panning daemon
+Documentation=https://github.com/zyrophix/hyprland-canvas
+# The daemon drives floating windows through Hyprland's IPC socket. Ordering
+# after the compositor keeps a restart from racing a not-yet-ready socket.
+After=graphical-session.target
+
+[Service]
+Type=simple
+
+# Use an absolute path. A systemd user manager has a minimal PATH and will not
+# necessarily see a pipx/uv tool bin directory.
+ExecStart=%h/.local/bin/canvasd
+
+# Only needed when more than one Hyprland instance is running. With a single
+# instance the daemon finds the socket on its own; with several it would pick
+# the first one it finds, which may not be the session you are looking at.
+#Environment=HYPRLAND_INSTANCE_SIGNATURE=
+
+# The daemon refuses to start a second instance (it holds a lock on
+# <socket>.lock and exits non-zero if another one is live). Combined with
+# Restart=on-failure that means a manually started `canvasd` will make this
+# unit retry in a loop — run one or the other, not both.
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

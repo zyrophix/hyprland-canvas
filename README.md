@@ -148,9 +148,10 @@ hl.bind("SUPER + SHIFT + G", hl.dsp.exec_cmd("canvas-ctl toggle"))
 The full list lives in the CLI itself — `canvas-ctl --help` is canonical:
 
 ```bash
-canvas-ctl --help  # all 15 commands with one-line descriptions
+canvas-ctl --help  # all 16 commands with one-line descriptions
 canvas-ctl ping    # check if daemon is running
 canvas-ctl status  # show pan direction and state
+canvas-ctl reload  # re-read the config file and apply it in place
 ```
 
 ### Configuration
@@ -181,7 +182,8 @@ canvas:
   spawn:
     center: true              # centre new canvas windows on their monitor
     default: 30%x40%          # size for any canvas window without an override
-    rules:                    # first match wins, checked before the default
+    rules:                    # LAST match wins, like windowrule: list broad
+                               # rules first and narrow ones last
       - match: { class: btop }
         size: 910x930
       - match: { title: ".*nvim.*" }
@@ -189,7 +191,10 @@ canvas:
 ```
 
 Invalid values (wrong type, zero/negative numbers) are rejected
-at daemon startup with the exact offending keys listed on stderr.
+at daemon startup with the exact offending keys listed on stderr. To pick up
+an edited config without restarting the daemon, run `canvas-ctl reload` — it
+re-reads the file, prints which one it used, and leaves the running config
+untouched if the new one does not validate.
 
 ### What canvas-toggle does to window geometry
 

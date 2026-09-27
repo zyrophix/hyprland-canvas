@@ -34,14 +34,14 @@ class Navigator:
     def __init__(
         self,
         ipc: HyprIPC,
-        protected_apps: list[str],
+        protected_apps: list[str] | None = None,
         cooldown: float = 0.2,
         preserve_geometry: bool = True,
         auto_float: bool = False,
         spawn_cfg: dict[str, Any] | None = None,
     ) -> None:
         self._ipc = ipc
-        self._protected_apps = [a.lower() for a in protected_apps]
+        self._protected_apps = [a.lower() for a in protected_apps or []]
         self._cooldown = cooldown
         self._preserve_geometry = preserve_geometry
         self._auto_float = auto_float

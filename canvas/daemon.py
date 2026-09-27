@@ -10,7 +10,7 @@ from collections.abc import Callable
 from typing import Any
 
 from canvas import debug
-from canvas.config import load
+from canvas.config import ConfigError, load, resolve_path
 from canvas.hypr import LUA_DISPATCH_HELPER, HyprIPC, get_cursor_pos
 from canvas.ipc import IpcServer, acquire_singleton
 from canvas.navigation import Navigator
@@ -59,6 +59,38 @@ class DaemonState:
         # Serializes compositor mutations from the IPC thread with main-loop
         # pan/edge moves. State objects retain their own fine-grained locks.
         self._operation_lock = threading.RLock()
+
+    def apply_config(self, cfg: dict[str, Any]) -> None:
+        """Push config values onto the live state objects.
+
+        Single source of truth for the config-to-state mapping: runs once at
+        startup and again on every `canvas-ctl reload`. Two copies of this
+        mapping would be the classic way for a reloaded key to quietly mean
+        something different from the same key at boot.
+
+        Every config key lands on a plain attribute, so a reload takes effect
+        on the next frame without rebuilding anything. Callers must already
+        hold `_operation_lock`.
+        """
+        self.panning.speed = cfg["speed"]
+        self.panning.max_speed = cfg.get("max_speed")
+        self.panning.inverted = cfg["invert"]["enabled"]
+
+        edge_cfg = cfg.get("edge_scroll", {})
+        self.edge_scroll.ramp_distance = edge_cfg.get("ramp_distance", 50)
+        self.edge_scroll.speed = edge_cfg.get("speed", 20.0)
+        self.edge_scroll.max_speed = edge_cfg.get("max_speed")
+        self.edge_scroll.enabled = edge_cfg.get("enabled", True)
+        self.edge_scroll.grab_dead_zone = edge_cfg.get("grab_dead_zone", 5)
+
+        nav_cfg = cfg["navigation"]
+        self.navigator._protected_apps = [a.lower() for a in nav_cfg["protected_apps"]]
+        self.navigator._cooldown = nav_cfg["cooldown"]
+
+        canvas_cfg = cfg.get("canvas", {})
+        self.navigator._preserve_geometry = bool(canvas_cfg.get("preserve_geometry", True))
+        self.navigator._auto_float = bool(canvas_cfg.get("auto_float", False))
+        self.navigator._spawn_cfg = canvas_cfg.get("spawn") or {}
 
     def _fetch_monitor_rect(self) -> bool:
         """Fetch focused monitor geometry for edge-scroll. True on success."""
@@ -115,6 +147,7 @@ class DaemonState:
         "CANVAS_TOGGLE_SINGLE": "_handle_canvas_toggle_single",
         "PING": "_handle_ping",
         "STATUS": "_handle_status",
+        "RELOAD": "_handle_reload",
     }
 
     def handle_ipc(self, cmd: str) -> str:
@@ -382,6 +415,32 @@ class DaemonState:
         pan = "PANNING" if self.panning.is_dragging else "IDLE"
         return f"{inv} {pan}"
 
+    def _handle_reload(self) -> str:
+        """Re-read the config file and apply it to the running daemon.
+
+        Validation happens before anything is applied, so a broken config
+        leaves the daemon running on the previous one instead of half-way
+        between two. The error has to be returned rather than raised: the IPC
+        server logs handler exceptions at debug level and sends the client
+        nothing, which would surface as a bare "empty response from daemon".
+        """
+        try:
+            cfg = load()
+        except ConfigError as e:
+            log.warning("reload rejected: %s", e)
+            return f"ERROR:CONFIG_INVALID: {e}"
+
+        self.apply_config(cfg)
+        # Spawn rules live in the compositor, so a changed canvas.spawn or a
+        # flipped auto_float only takes effect once they are re-armed. Costs a
+        # few compositor round trips, which is why the response below is not
+        # sent until it is done.
+        self.navigator.rehydrate_spawn_rules()
+
+        source = resolve_path()
+        log.info("reloaded config from %s", source or "built-in defaults")
+        return f"OK: reloaded ({source})" if source else "OK: reloaded (built-in defaults)"
+
     def handle_idle_pan_stop(self) -> bool:
         """Auto-stop panning after cursor idle; drop baselines.
 
@@ -549,31 +608,16 @@ def run() -> None:
     cfg = load()
 
     ipc = HyprIPC.from_env()
-    state = PanningState(speed=cfg["speed"], max_speed=cfg.get("max_speed"))
-    state.inverted = cfg["invert"]["enabled"]
-
-    edge_cfg = cfg.get("edge_scroll", {})
-    edge_scroll = EdgeScrollState(
-        ramp_distance=edge_cfg.get("ramp_distance", 50),
-        speed=edge_cfg.get("speed", 20.0),
-        max_speed=edge_cfg.get("max_speed"),
-        enabled=edge_cfg.get("enabled", True),
-        grab_dead_zone=edge_cfg.get("grab_dead_zone", 5),
-    )
-
-    canvas_cfg = cfg.get("canvas", {})
-    navigator = Navigator(
-        ipc=ipc,
-        protected_apps=cfg["navigation"]["protected_apps"],
-        cooldown=cfg["navigation"]["cooldown"],
-        preserve_geometry=bool(canvas_cfg.get("preserve_geometry", True)),
-        auto_float=bool(canvas_cfg.get("auto_float", False)),
-        spawn_cfg=canvas_cfg.get("spawn") or {},
-    )
+    state = PanningState()
+    edge_scroll = EdgeScrollState()
+    navigator = Navigator(ipc=ipc)
 
     daemon_state = DaemonState(
         panning=state, edge_scroll=edge_scroll, navigator=navigator, ipc=ipc
     )
+    # Same call `canvas-ctl reload` makes, so boot and reload cannot diverge.
+    with daemon_state._operation_lock:
+        daemon_state.apply_config(cfg)
 
     ipc_server = IpcServer(handler=daemon_state.handle_ipc)
 

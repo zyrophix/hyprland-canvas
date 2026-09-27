@@ -7,12 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `canvas-ctl reload` re-reads the config file and applies it to the running
+  daemon, so tuning speeds, protected apps, edge-scroll and `canvas.spawn`
+  sizing no longer needs a restart. The new config is validated before anything
+  is applied, so a broken file leaves the daemon on the previous one rather
+  than half-way between two. The response names the file that was read, which
+  matters when an XDG config and a project copy both exist.
+- `examples/hypr-canvasd.service` — an example systemd user unit for anyone who
+  wants a supervisor. The daemon exits non-zero when the cursor poller dies so
+  that something restarts it; until now the repository shipped the mechanism
+  without the thing that uses it. It is an example only: the Arch package and
+  the wheels still install no service and enable nothing.
+
 ### Fixed
 
 - When several `canvas.spawn` rules match the same window, the last one now
   wins, matching the compositor. Previously an already open window was sized
   with the first matching rule while a newly opened one got the last, so the
   two could end up different sizes. Documentation updated accordingly.
+- `docs/debugging.md` no longer claims that per-window trace events appear at
+  `CANVAS_DEBUG=1`. Only eight events do; the other thirty-two, including
+  `CANVAS_GEOMETRY` and every `SPAWN_RULES_*`, need `CANVAS_DEBUG=2`. The old
+  list sent people looking for events the daemon never printed at that level.
+- Config errors now name the file that produced them, so a reload that fails
+  says which copy to fix.
 
 ## [1.5.0] — 2026-09-27
 

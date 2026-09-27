@@ -37,6 +37,7 @@ _COMMANDS: tuple[tuple[str, str], ...] = (
     ("toggle", "invert pan direction"),
     ("edge-start", "start edge-scroll (called by mouse bind)"),
     ("edge-stop", "stop edge-scroll (called by mouse release bind)"),
+    ("reload", "re-read the config file and apply it without restarting"),
 )
 
 
