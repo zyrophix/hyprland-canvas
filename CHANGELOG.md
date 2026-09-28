@@ -31,14 +31,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Hyprland itself ships for `xdg-desktop-portal`, so it starts and stops with
   the session and never before it.
 
+### Changed
+
+- The default `canvas.spawn` size is now `50%x60%`, up from `30%x40%`. The old
+  value gave 576x414 on a 1920x1036 workarea — about 76 columns and 24 rows in
+  a terminal — and it overrode the client downward rather than upward: Hyprland
+  takes a floating window's size from the application, so any number in the
+  rule replaces whatever was asked for. The pixel example in the config and the
+  README was `910x930`, more than three times the default's area, which is part
+  of why the value read as arbitrary; it is now `960x620`, next to what the
+  default actually produces. `canvas.spawn.default` and per-class `rules` still
+  override it.
+
 ### Fixed
 
 - `canvas.spawn` percent sizes and computed window positions were wrong on any
   setup with a panel. Hyprland serialises a monitor's `reserved` as
   left, top, right, bottom; it was read one position out of order, so a 44px
   top bar produced a workarea 44px narrower and 44px taller. On a 1920x1080
-  display with a 44px bar that turned `30%x40%` into 562x432 instead of
-  576x414, and put the computed workarea centre at (938, 540) rather than
+  display with a 44px bar that turned `50%x60%` into 938x648 instead of
+  960x621, and put the computed workarea centre at (938, 540) rather than
   (960, 562). The bug is invisible without a reserved area.
 - The `canvas.spawn` rule no longer carries `immediate`, `no_anim`, `no_dim`
   and `no_shadow`. A windowrule is re-evaluated against every mapped window

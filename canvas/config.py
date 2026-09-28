@@ -49,7 +49,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "auto_float": False,
         "spawn": {
             "center": True,
-            "default": "30%x40%",
+            "default": "50%x60%",
             "rules": [],
         },
     },

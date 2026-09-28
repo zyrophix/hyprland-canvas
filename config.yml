@@ -40,12 +40,12 @@ canvas:
                                # float + size + centre them at map time
   spawn:
     center: true               # centre new canvas windows on their monitor
-    default: 30%x40%           # px (910x930) or % of the monitor workarea
+    default: 50%x60%           # px (960x620) or % of the monitor workarea
     rules: []                   # LAST match wins, like windowrule: broad first,
                                # narrow last; unmatched gets `default`. Matchers
                                # are FULL matches: .*btop.* for a substring,
                                # plain btop matches only exactly "btop"
       # - match: { class: btop }
-      #   size: 910x930
+      #   size: 960x620
       # - match: { title: ".*nvim.*" }
       #   size: 45%x35%

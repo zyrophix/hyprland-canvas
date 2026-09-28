@@ -202,11 +202,11 @@ canvas:
   auto_float: false           # shape windows opened while canvas is ON (see below)
   spawn:
     center: true              # centre new canvas windows on their monitor
-    default: 30%x40%          # size for any canvas window without an override
+    default: 50%x60%          # size for any canvas window without an override
     rules:                    # LAST match wins, like windowrule: list broad
                                # rules first and narrow ones last
       - match: { class: btop }
-        size: 910x930
+        size: 960x620
       - match: { title: ".*nvim.*" }
         size: 45%x35%
 ```
@@ -246,7 +246,7 @@ windowrule at map time, so there is no visible reflow and no polling in the
 daemon.
 
 Sizes are either pixels (`910x930`) or a percentage of the workarea of the
-monitor that owns the workspace (`30%x40%`); they are clamped so a window can
+monitor that owns the workspace (`50%x60%`); they are clamped so a window can
 never be asked to be larger than the screen. `match` accepts the same
 properties as a Hyprland `windowrule` matcher, and values are treated as
 regular expressions, so `.*nvim.*` works. Note that Hyprland matches these
