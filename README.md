@@ -245,7 +245,7 @@ mode arrives already floating, sized and centred — the compositor applies a
 windowrule at map time, so there is no visible reflow and no polling in the
 daemon.
 
-Sizes are either pixels (`910x930`) or a percentage of the workarea of the
+Sizes are either pixels (`960x620`) or a percentage of the workarea of the
 monitor that owns the workspace (`50%x60%`); they are clamped so a window can
 never be asked to be larger than the screen. `match` accepts the same
 properties as a Hyprland `windowrule` matcher, and values are treated as
