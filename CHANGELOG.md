@@ -103,12 +103,19 @@ release is cut; nothing here is hand-maintained in between.
   non-empty snapshot, and nothing else in the OFF path tiles it. The marker
   still cleared, so the toggle looked like it had done nothing.
 - `canvas.auto_float` no longer shapes windows outside the canvas workspaces it
+  was enabled for. Every rule was registered with a `class = ".*"` catch-all and
+  no workspace condition — the workspace id appeared only in the rule's name,
+  which is bookkeeping for retracting it later. So a rule registered for one
+  canvas workspace floated and centred every window opened in every workspace,
+  and with two canvas workspaces open the second registration's size won
+  globally, sizing windows on the first against the second's workarea. Rules
+  are now scoped to the workspace they are registered for, and a rule naming a
+  different workspace is rejected rather than silently never matching.
 - Spawn rules are now taken down when the daemon exits. The compositor's rule
   engine outlives the process, so a rule left registered kept shaping every
   window opened on that workspace afterwards, with no daemon left to retract
   it. The state file keeps the names, so a killed daemon is still cleaned up
   on the next start.
-  was enabled for. Every rule was registered with a `class = ".*"` catch-all and
 - The geometry remembered for the next `canvas-toggle` is now refreshed on
   every toggle off, not only when a pan moved a window. With nothing panned
   there was no capture and the old entry was never cleared, so it survived
@@ -117,13 +124,6 @@ release is cut; nothing here is hand-maintained in between.
   file keeps window addresses and drops their geometry — 1.2.0 is where
   `canvas-toggle` started recording geometry at all — and applying such an entry
   verbatim failed the whole toggle. It now falls back to the tiled box.
-  no workspace condition — the workspace id appeared only in the rule's name,
-  which is bookkeeping for retracting it later. So a rule registered for one
-  canvas workspace floated and centred every window opened in every workspace,
-  and with two canvas workspaces open the second registration's size won
-  globally, sizing windows on the first against the second's workarea. Rules
-  are now scoped to the workspace they are registered for, and a rule naming a
-  different workspace is rejected rather than silently never matching.
 - A fullscreen floating window is no longer dragged along by the camera. The
   `fullscreen` field from `j/clients` was read in exactly one place, so a
   fullscreen call or video would travel off-screen with every pan frame.
