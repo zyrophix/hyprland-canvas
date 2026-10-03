@@ -21,6 +21,9 @@ Hyprland has no built-in infinite desktop. This daemon provides one by communica
 
 Honest limits: no render-level zoom (windows move, nothing scales), no touchpad gestures, no resize/move of tiled windows — pan, navigate, center, toggle and size, nothing else.
 
+Features here get added when they look useful and removed when they turn out
+not to, so expect breaking changes.
+
 ## Features
 
 | Feature | Keybind | Description |
@@ -277,7 +280,9 @@ that was a deliberate choice rather than something the layout picked.
 
 ## Contributing
 
-PRs welcome. Run `uv run pytest` and `uv run ruff check` before submitting.
+I'd be happy to receive bug reports, suggestions, discussions, and ideas for the
+project's development. Run `uv run pytest` and `uv run ruff check` before
+submitting a pull request.
 
 ## License
 
