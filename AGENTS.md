@@ -16,9 +16,9 @@ package is `canvas/`, `pyyaml` is the only runtime dependency, and `canvasd` and
 - Types: `uv run mypy canvas/`
 - Markdown: `npx --yes markdownlint-cli2 $(git ls-files '*.md' | tr '\n' ' ')`
 
-CI is the gate, and it runs the matrix 3.12 / 3.13 / 3.14. The README's
-Contributing section names two of these six steps, so following it is not
-enough to pass.
+CI is the gate, and it runs the matrix 3.12 / 3.13 / 3.14. The Fast path above
+is the same set on one interpreter, so it catches a failure before CI does but
+does not cover the other two versions.
 
 ## Boundaries
 

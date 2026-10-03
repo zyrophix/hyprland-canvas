@@ -281,8 +281,10 @@ that was a deliberate choice rather than something the layout picked.
 ## Contributing
 
 I'd be happy to receive bug reports, suggestions, discussions, and ideas for the
-project's development. Run `uv run pytest` and `uv run ruff check` before
-submitting a pull request.
+project's development.
+
+CI is the gate: ruff, ruff-format, mypy, pytest and markdownlint, on Python
+3.12, 3.13 and 3.14.
 
 ## License
 
