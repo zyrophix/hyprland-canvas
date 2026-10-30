@@ -14,6 +14,39 @@ log = logging.getLogger("canvas.navigation")
 
 _VALID_ADDR = re.compile(r"^0x[0-9a-fA-F]+$")
 
+# Hyprland reports a window's fullscreen state as eFullscreenMode, not a bool:
+# 0 none, 1 maximized, 2 fullscreen. Only the last takes over the output, so
+# only the last rules a window out of the canvas — a maximized window is still
+# an ordinary floating window that the user can drag. It has been an integer
+# since at least 0.55, the oldest version this daemon supports, so there is no
+# boolean form to stay compatible with.
+FSMODE_FULLSCREEN = 2
+
+
+def fullscreen_state(window: dict[str, Any]) -> int:
+    """`fullscreen` as an integer; 0 when the key is missing or unusable."""
+    try:
+        return int(window.get("fullscreen") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _skip_set_lua(addresses: set[str] | None) -> str:
+    """Lua defining `skip`, a set of window addresses, for the move batches.
+
+    Addresses come from `j/clients`, so they are well formed in practice; the
+    format check is here because the alternative is interpolating whatever the
+    compositor sent straight into a Lua string literal, which is the one place
+    this file refuses to do that.
+    """
+    valid = sorted(a for a in addresses or () if _VALID_ADDR.match(a))
+    if not valid:
+        return "local skip = {}"
+    lines = ["local skip = {"]
+    lines.extend(f'  ["{addr}"] = true,' for addr in valid)
+    lines.append("}")
+    return "\n".join(lines)
+
 
 def _safe_int(value: object, name: str) -> int:
     """Coerce to int, raising ValueError if impossible.
@@ -42,6 +75,9 @@ class Navigator:
     ) -> None:
         self._ipc = ipc
         self._protected_apps = [a.lower() for a in protected_apps or []]
+        # Windows the camera must not carry along, from window_pan_excludes.
+        # Pushed in by apply_config alongside the rest of the runtime config.
+        self._pan_exclude_apps: list[str] = []
         self._cooldown = cooldown
         self._preserve_geometry = preserve_geometry
         self._auto_float = auto_float
@@ -207,7 +243,17 @@ class Navigator:
         floating = self._get_floating_windows(workspace_id)
         if floating is None:
             return False
-        if len(floating) <= 1:
+        # Excluded windows are neither targets nor passengers: the pan below
+        # leaves them where they are, so navigating to one would move everything
+        # except the thing that was asked for. Resolved once, here, and carried
+        # into the Lua as the skip set — one j/clients for the whole command.
+        excluded = {
+            str(w["address"])
+            for w in floating
+            if isinstance(w.get("address"), str) and self.excluded(w)
+        }
+        movable = [w for w in floating if str(w.get("address", "")) not in excluded]
+        if len(movable) <= 1:
             return True
 
         focused = self._get_focused_window()
@@ -217,14 +263,14 @@ class Navigator:
             return True
 
         current_addr = focused["address"]
-        current_win = next((w for w in floating if w["address"] == current_addr), None)
+        current_win = next((w for w in movable if w["address"] == current_addr), None)
         if current_win is None:
             return True
 
         current_bounds = self._window_bounds(current_win)
         current_center = self._window_center(current_win)
 
-        target = self._find_spatial_target(floating, current_bounds, current_center, direction)
+        target = self._find_spatial_target(movable, current_bounds, current_center, direction)
         # Fallback: circular index order (legacy behavior) when no spatial candidate
         target_addr: str | None = None
         if target is not None:
@@ -232,17 +278,17 @@ class Navigator:
         else:
             # No window in that direction spatially — cycle by index (protected-aware)
             current_index = next(
-                (i for i, w in enumerate(floating) if w["address"] == current_addr), -1
+                (i for i, w in enumerate(movable) if w["address"] == current_addr), -1
             )
             if current_index != -1:
                 idx = current_index
-                for _ in range(len(floating)):
+                for _ in range(len(movable)):
                     if direction in ("right", "down"):
-                        idx = (idx + 1) % len(floating)
+                        idx = (idx + 1) % len(movable)
                     else:
-                        idx = (idx - 1) % len(floating)
-                    if not self._is_protected(floating[idx]):
-                        target_addr = floating[idx]["address"]
+                        idx = (idx - 1) % len(movable)
+                    if not self._is_protected(movable[idx]):
+                        target_addr = movable[idx]["address"]
                         break
 
         if target_addr is None:
@@ -267,7 +313,9 @@ class Navigator:
         if center is None:
             return False
         center_x, center_y = center
-        return self._pan_to_window(floating_updated, target_addr, center_x, center_y, workspace_id)
+        return self._pan_to_window(
+            floating_updated, target_addr, center_x, center_y, workspace_id, excluded
+        )
 
     def _persist_canvas_state(
         self,
@@ -1094,12 +1142,19 @@ class Navigator:
         center = self._get_monitor_center(cursor_x, cursor_y)
         if center is None:
             return False
+        # Centering moves the canvas. A window excluded from that cannot be what
+        # it centers on: every other window would shift and the target would
+        # stay where it is.
+        excluded = self.excluded_addresses(workspace_id)
+        if target_addr in excluded:
+            return False
         center_x, center_y = center
         safe_x = _safe_int(center_x, "center_x")
         safe_y = _safe_int(center_y, "center_y")
         ws_id = _safe_int(workspace_id, "workspace_id")
         lua = (
             f"{LUA_DISPATCH_HELPER}\n"
+            f"{_skip_set_lua(excluded)}\n"
             f"local ws = hl.get_windows({{ floating = true, workspace = {ws_id} }})\n"
             f"local target = nil\n"
             f"for _, w in ipairs(ws) do\n"
@@ -1111,8 +1166,10 @@ class Navigator:
             f"local dx = {safe_x} - target_cx\n"
             f"local dy = {safe_y} - target_cy\n"
             f"for _, w in ipairs(ws) do\n"
-            f"  _canvas_dispatch(hl.dispatch(hl.dsp.window.move({{"
+            f"  if not skip[tostring(w.address)] then\n"
+            f"    _canvas_dispatch(hl.dispatch(hl.dsp.window.move({{"
             f" x = dx, y = dy, relative = true, window = w }})))\n"
+            f"  end\n"
             f"end"
         )
         try:
@@ -1121,6 +1178,38 @@ class Navigator:
         except Exception as e:
             log.warning("center window failed: %s", e)
             return False
+
+    def excluded(self, window: dict[str, Any]) -> bool:
+        """True if this window must stay put while the canvas moves.
+
+        A fullscreen window owns the output, so panning it away would take the
+        user's whole view with it. A hidden one is a swallowee with no geometry
+        of its own, and a pinned one is meant to follow the user across
+        workspaces rather than ride the canvas. Everything else is matched as a
+        case-insensitive substring of the class, the same rule `protected_apps`
+        uses.
+
+        This is the one place the rule lives. Panning, edge-scroll, navigation
+        and centering all resolve it here, so a window cannot be left out of one
+        of them and be dragged by another.
+        """
+        if fullscreen_state(window) == FSMODE_FULLSCREEN:
+            return True
+        if window.get("hidden") or window.get("pinned"):
+            return True
+        window_class = str(window.get("class", "")).lower()
+        return any(app in window_class for app in self._pan_exclude_apps)
+
+    def excluded_addresses(self, workspace_id: int) -> set[str]:
+        """Addresses on one workspace that must stay put, resolved in one query."""
+        floating = self._get_floating_windows(workspace_id)
+        if floating is None:
+            return set()
+        return {
+            str(w["address"])
+            for w in floating
+            if isinstance(w.get("address"), str) and self.excluded(w)
+        }
 
     def _is_protected(self, window: dict[str, Any]) -> bool:
         """Check if window class matches a protected app."""
@@ -1134,6 +1223,7 @@ class Navigator:
         center_x: int,
         center_y: int,
         workspace_id: int | None = None,
+        excluded: set[str] | None = None,
     ) -> bool:
         """Pan the workspace's floating windows so the target centers on monitor."""
         target = None
@@ -1160,11 +1250,14 @@ class Navigator:
 
         lua = (
             f"{LUA_DISPATCH_HELPER}\n"
+            f"{_skip_set_lua(excluded)}\n"
             f"local ws = hl.get_windows({{ floating = true{ws_filter} }})\n"
             f"for _, w in ipairs(ws) do\n"
-            f"  _canvas_dispatch(hl.dispatch(hl.dsp.window.move({{"
+            f"  if not skip[tostring(w.address)] then\n"
+            f"    _canvas_dispatch(hl.dispatch(hl.dsp.window.move({{"
             f" x = {safe_dx}, y = {safe_dy},"
             f" relative = true, window = w }})))\n"
+            f"  end\n"
             f"end\n"
         )
 

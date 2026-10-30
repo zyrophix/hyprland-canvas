@@ -13,7 +13,7 @@ from canvas import debug
 from canvas.config import ConfigError, load, resolve_path
 from canvas.hypr import LUA_DISPATCH_HELPER, HyprIPC, get_cursor_pos
 from canvas.ipc import IpcServer, acquire_singleton
-from canvas.navigation import Navigator
+from canvas.navigation import FSMODE_FULLSCREEN, Navigator, fullscreen_state
 from canvas.panning import EdgeScrollParams, EdgeScrollState, PanningState, cursor_poller
 
 log = logging.getLogger("canvas")
@@ -51,8 +51,6 @@ class DaemonState:
         self.edge_scroll_workspace: int | None = None
         # Windows kept out of edge-scroll pan, resolved once at EDGE_START.
         self.edge_scroll_excluded: set[str] = set()
-        # Addresses to leave alone when panning, from window_pan_excludes.
-        self._pan_exclude_apps: list[str] = []
         # Serializes compositor mutations from the IPC thread with main-loop
         # pan/edge moves. State objects retain their own fine-grained locks.
         self._operation_lock = threading.RLock()
@@ -90,7 +88,9 @@ class DaemonState:
             nav_cfg = cfg["navigation"]
             self.navigator._protected_apps = [a.lower() for a in nav_cfg["protected_apps"]]
             self.navigator._cooldown = nav_cfg["cooldown"]
-            self._pan_exclude_apps = [a.lower() for a in cfg["window_pan_excludes"]]
+            # The exclusion predicate lives on the Navigator, which resolves it
+            # for panning, edge-scroll, navigation and centering alike.
+            self.navigator._pan_exclude_apps = [a.lower() for a in cfg["window_pan_excludes"]]
 
             canvas_cfg = cfg["canvas"]
             self.navigator._preserve_geometry = canvas_cfg["preserve_geometry"]
@@ -274,7 +274,7 @@ class DaemonState:
         for w in clients:
             if not w.get("floating"):
                 continue
-            if w.get("hidden") or w.get("fullscreen"):
+            if w.get("hidden") or fullscreen_state(w) == FSMODE_FULLSCREEN:
                 continue
             wsw = w.get("workspace")
             if not isinstance(wsw, dict) or wsw.get("id") != workspace_id:
@@ -344,7 +344,7 @@ class DaemonState:
 
         self.edge_scroll_workspace = ws_id
         # One lookup for the whole gesture; edge_scroll_move runs per frame.
-        self.edge_scroll_excluded = self._pan_excluded_addresses(ws_id)
+        self.edge_scroll_excluded = self.navigator.excluded_addresses(ws_id)
         if not self._fetch_monitor_rect():
             # Without real geometry the overflow math would run against a
             # default 1920x1080 rect — on multi-monitor setups that causes
@@ -462,42 +462,6 @@ class DaemonState:
             self.baselines = {}
         return stopped
 
-    def _pan_excluded(self, window: dict[str, Any]) -> bool:
-        """True if this window must not be dragged along by the camera.
-
-        Substring match on class, same as Navigator's protected apps. A fullscreen
-        window is excluded unconditionally: it owns the output, and panning it
-        away would take the user's whole view with it.
-        """
-        if window.get("fullscreen"):
-            return True
-        window_class = str(window.get("class", "")).lower()
-        return any(app in window_class for app in self._pan_exclude_apps)
-
-    def _pan_excluded_addresses(self, workspace_id: int) -> set[str]:
-        """Addresses on a workspace that must not be dragged by the camera.
-
-        One lookup per gesture, not per frame. The edge-scroll path re-queries
-        nothing afterwards: the exclusion is baked into the Lua it sends.
-        """
-        try:
-            clients = json.loads(self.ipc.send("j/clients"))
-        except Exception as e:
-            log.debug("pan exclusion lookup failed: %s", e)
-            return set()
-        out: set[str] = set()
-        for w in clients:
-            if not w.get("floating"):
-                continue
-            wsw = w.get("workspace")
-            if not isinstance(wsw, dict) or wsw.get("id") != workspace_id:
-                continue
-            if self._pan_excluded(w):
-                addr = w.get("address", "")
-                if addr:
-                    out.add(str(addr))
-        return out
-
     def fetch_baselines(self) -> bool:
         """Snapshot floating windows of the ACTIVE workspace as pan baselines.
 
@@ -517,7 +481,7 @@ class DaemonState:
             for w in clients:
                 if not w.get("floating"):
                     continue
-                if self._pan_excluded(w):
+                if self.navigator.excluded(w):
                     continue
                 wsw = w.get("workspace")
                 if not isinstance(wsw, dict) or wsw.get("id") != workspace_id:

@@ -4,15 +4,22 @@ import json
 from unittest.mock import MagicMock, patch
 
 from canvas.daemon import DaemonState, _lua_escape
+from canvas.navigation import Navigator
 from canvas.panning import EdgeScrollParams, EdgeScrollState, PanningState
 
 
-def _make_daemon_state(ipc: MagicMock | None = None) -> DaemonState:
+def _make_daemon_state(ipc: MagicMock | None = None, navigator=None) -> DaemonState:
     panning = PanningState(speed=1.0)
     edge_scroll = EdgeScrollState(ramp_distance=50, speed=20.0, enabled=True)
-    navigator = MagicMock()
     if ipc is None:
         ipc = MagicMock()
+    if navigator is None:
+        # A real Navigator, not a mock. DaemonState asks it which windows the
+        # camera must leave alone, and a mock answers every window with a truthy
+        # object — so a mocked navigator silently excludes all of them.
+        # Patched load() keeps the test off the real toggle-state file.
+        with patch("canvas.navigation.toggle_state.load", return_value={}):
+            navigator = Navigator(ipc=ipc, cooldown=0.0)
     return DaemonState(panning=panning, edge_scroll=edge_scroll, navigator=navigator, ipc=ipc)
 
 
@@ -62,7 +69,7 @@ def test_handle_ipc_toggle():
 
 def test_handle_ipc_nav():
     """NAV_LEFT/NAV_RIGHT delegates to navigator."""
-    ds = _make_daemon_state()
+    ds = _make_daemon_state(navigator=MagicMock())
 
     assert ds.handle_ipc("NAV_LEFT") == "OK"
     ds.navigator.navigate.assert_called_with("left")
@@ -474,7 +481,7 @@ def test_find_window_at_cursor_skips_hidden_and_fullscreen_overlaps():
         {
             "address": "0xfullscreen",
             "floating": True,
-            "fullscreen": 1,
+            "fullscreen": 2,
             "at": [100, 100],
             "size": [400, 300],
             "workspace": {"id": 1},
@@ -488,6 +495,39 @@ def test_find_window_at_cursor_skips_hidden_and_fullscreen_overlaps():
 
     assert found is not None
     assert found["address"] == "0xpinned"
+
+
+def test_find_window_at_cursor_keeps_maximized_clients():
+    """`fullscreen` is eFullscreenMode, so 1 is maximized, not fullscreen.
+
+    A maximized floating window is still an ordinary window the user can drag,
+    so it stays a candidate; only 2 takes over the output.
+    """
+    clients = [
+        {
+            "address": "0xvisible",
+            "floating": True,
+            "at": [100, 100],
+            "size": [400, 300],
+            "workspace": {"id": 1},
+        },
+        {
+            "address": "0xmaximized",
+            "floating": True,
+            "fullscreen": 1,
+            "at": [100, 100],
+            "size": [400, 300],
+            "workspace": {"id": 1},
+        },
+    ]
+    ipc = MagicMock()
+    ipc.send.return_value = json.dumps(clients)
+    ds = _make_daemon_state(ipc)
+
+    found = ds._find_window_at_cursor(300, 250, 1)
+
+    assert found is not None
+    assert found["address"] == "0xmaximized"
 
 
 def test_handle_ipc_edge_start_tiled_only_under_cursor():

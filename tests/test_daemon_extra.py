@@ -3,16 +3,25 @@
 from unittest.mock import MagicMock, patch
 
 from canvas.daemon import DaemonState
+from canvas.navigation import Navigator
 from canvas.panning import EdgeScrollParams, EdgeScrollState, PanningState
 
 
-def _make_daemon_state(ipc: MagicMock | None = None) -> DaemonState:
+def _make_daemon_state(ipc: MagicMock | None = None, navigator=None) -> DaemonState:
     panning = PanningState(speed=1.0)
     edge_scroll = EdgeScrollState(ramp_distance=50, speed=20.0, enabled=True)
-    navigator = MagicMock()
     if ipc is None:
         ipc = MagicMock()
+    if navigator is None:
+        navigator = MagicMock()
     return DaemonState(panning=panning, edge_scroll=edge_scroll, navigator=navigator, ipc=ipc)
+
+
+def _real_navigator(ipc: MagicMock) -> Navigator:
+    """A Navigator that does real work. Patched load() keeps it off the real
+    toggle-state file, which the daemon may be writing to right now."""
+    with patch("canvas.navigation.toggle_state.load", return_value={}):
+        return Navigator(ipc=ipc, cooldown=0.0)
 
 
 def test_fetch_monitor_rect_focused():
@@ -194,10 +203,6 @@ def test_fetch_monitor_rect_rejects_missing_dimensions():
 
 
 def test_edge_start_cancels_active_pan():
-    ds = _make_daemon_state()
-    ds.panning.start_pan()
-    ds.baselines = {"0x1": (10, 20)}
-
     ipc = MagicMock()
     ipc.send.side_effect = [
         '{"id":1}',
@@ -206,7 +211,10 @@ def test_edge_start_cancels_active_pan():
         '[{"address":"0xabc","floating":true,"at":[100,100],"size":[400,300],"workspace":{"id":1}}]',
         '[{"focused":true,"x":0,"y":0,"width":1920,"height":1080}]',
     ]
-    ds.ipc = ipc
+    ds = _make_daemon_state(ipc, _real_navigator(ipc))
+    ds.panning.start_pan()
+    ds.baselines = {"0x1": (10, 20)}
+
     with patch("canvas.daemon.get_cursor_pos", return_value=(300, 250)):
         result = ds.handle_ipc("EDGE_START")
 

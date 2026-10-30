@@ -71,7 +71,7 @@ def test_fullscreen_floating_window_is_not_panned():
         ipc,
         [
             _client("0x1", "kitty"),
-            _client("0x2", "zoom", fullscreen=True),
+            _client("0x2", "zoom", fullscreen=2),
         ],
     )
     assert "0x1" in ds.baselines
@@ -81,7 +81,7 @@ def test_fullscreen_floating_window_is_not_panned():
 def test_fullscreen_window_also_skips_the_restore():
     """Excluded at snapshot time, so the restore pass never saw it either."""
     ipc = MagicMock()
-    ds = _pan_state(ipc, [_client("0x2", "zoom", fullscreen=True)])
+    ds = _pan_state(ipc, [_client("0x2", "zoom", fullscreen=2)])
     assert ds.baselines == {}
     # restore_baselines returns immediately with nothing to restore
     ds.restore_baselines()
@@ -94,7 +94,7 @@ def test_fullscreen_window_also_skips_the_restore():
 def test_window_pan_excludes_keeps_class_out_of_baselines():
     ipc = MagicMock()
     ds = _state(ipc)
-    ds._pan_exclude_apps = ["picture-in-picture"]
+    ds.navigator._pan_exclude_apps = ["picture-in-picture"]
     ipc.send.side_effect = [
         json.dumps({"id": 1}),
         json.dumps(
