@@ -1,0 +1,9 @@
+# Keeps uv.lock in step with pyproject.toml, so the committed lock that CI
+# checks with `uv sync --locked` cannot go stale.
+#
+# Not installed by the project; add it with `pre-commit install` if you want it.
+repos:
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.13.6
+    hooks:
+      - id: uv-lock

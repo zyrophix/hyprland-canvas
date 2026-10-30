@@ -1,0 +1,16 @@
+version: 2
+
+updates:
+  # `uv.lock` has to be committed for this to work, which is why it is.
+  # Dependabot updates the lock; it only touches pyproject.toml when a
+  # constraint no longer admits the new version, and every constraint here is
+  # a lower bound.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

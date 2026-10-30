@@ -10,19 +10,25 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.12", "3.13", "3.14"]
+        python-version: ["3.12", "3.13", "3.14", "3.15"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v10
+        with:
+          # Pin to the newest uv whose checksums ship with this action version,
+          # so the toolchain is verified rather than whatever is latest.
+          version: "latest-known"
 
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --dev
+        # --locked: uv.lock is committed, so a pyproject edit that was not
+        # re-locked is a CI failure instead of a silent re-resolution.
+        run: uv sync --dev --locked
 
       - name: Ruff check
         run: uv run ruff check .
@@ -39,7 +45,9 @@ jobs:
   markdown:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Markdownlint
-        run: npx --yes markdownlint-cli2 $(git ls-files '*.md' | tr '\n' ' ')
+        # Version pinned: the config enables `default: true`, so a new rule in
+        # any future release would otherwise turn CI red without a commit.
+        run: npx --yes markdownlint-cli2@0.23.3 $(git ls-files '*.md' | tr '\n' ' ')
