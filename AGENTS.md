@@ -29,12 +29,15 @@ does not cover the other two versions.
   subject is not enough.
 - Release bodies are edited with `gh release edit`, after saving the current one
   with `gh release view <tag> --json body`.
-- The version lives in two places: `pyproject.toml` and that release's heading in
-  `CHANGELOG.md`.
+- The version lives in three places: `canvas/__init__.py`, `pyproject.toml`, and
+  that release's heading in `CHANGELOG.md`. The first is the fallback
+  `canvasd --version` uses when the package is not installed as metadata, so
+  missing it leaves the binary reporting the release before.
 - Config defaults live in `DEFAULT_CONFIG` in `canvas/config.py`. The repo's
   `config.yml` is a copy template and is deliberately not shipped in the wheel.
-- Runtime dependencies: one, `pyyaml`. The pan loop holds a persistent Hyprland
-  socket rather than spawning a subprocess per frame.
+- Runtime dependencies: one, `pyyaml`. Hyprland IPC is one short-lived Unix
+  socket per request — the server closes after each response — so the pan loop
+  pays a connect per frame instead of a subprocess per frame.
 
 ## Known traps
 
@@ -44,7 +47,9 @@ does not cover the other two versions.
 - Toggle state is versioned and older files keep loading: v4 is current, and v2
   and v3 must still restore.
 - The daemon targets Hyprland 0.55+ with a Lua config. Geometry calls changed
-  between 0.55 and 0.56, and none of this is testable without a live compositor.
+  between 0.55 and 0.56 and `hl.bind` options changed between 0.56 and 0.57
+  (`mouse` is parsed now and is exclusive with `release`), and none of this is
+  testable without a live compositor.
 - `canvas.auto_float` windowrules are registered at toggle time, not at config
   load, so a missing `SPAWN_RULES_REGISTER` trace means the toggle did not reach
   that code.
