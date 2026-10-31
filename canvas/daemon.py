@@ -38,6 +38,12 @@ class DaemonState:
     # rearm_spawn_rules_if_due.
     _SPAWN_REARM_INTERVAL = 5.0
 
+    # A press half that dispatches `window.drag()` makes Hyprland re-run the
+    # binding when the button comes up, so edge-start arrives a second time
+    # within milliseconds of edge-stop. Any start this close to the previous
+    # stop is that re-run; a hand cannot let go and press again this fast.
+    _EDGE_RESTART_GUARD = 0.1
+
     def __init__(
         self,
         panning: PanningState,
@@ -67,6 +73,8 @@ class DaemonState:
         # registered names, without telling anyone. The spawn rules are therefore
         # re-registered on a timer.
         self._last_spawn_rearm = time.monotonic()
+        # Last EDGE_STOP, to recognise the drag bind's release re-run.
+        self._last_edge_stop = 0.0
 
     def apply_config(self, cfg: dict[str, Any], source: str | None = None) -> None:
         """Push config values onto the live state objects.
@@ -309,10 +317,23 @@ class DaemonState:
         """Activate edge-scroll for the floating window under the cursor."""
         if self.panning.is_dragging:
             # Modes are mutually exclusive: a stale pan session would fight
-            # the edge camera (and vice versa below).
+            # the edge camera (and vice versa below). This runs before the guard
+            # below, so an ignored start still cancels a running pan.
             self.panning.stop_pan()
             self.baselines = {}
             debug.dbg2("MODE_SWITCH", to="edge", stopped="pan")
+
+        # The press half dispatches `window.drag()`, and Hyprland re-runs that
+        # binding when the button comes up. Because the release bind also fires
+        # at that moment, the re-run's edge-start can land after its edge-stop
+        # and leave a session armed with no finger on the button — it would keep
+        # scrolling until the idle timeout. Refuse a start this close to a stop.
+        # A stop that had nothing to stop still starts the guard; the case it
+        # covers is the release itself, which is the one that arrives right
+        # after the phantom.
+        if time.monotonic() - self._last_edge_stop < self._EDGE_RESTART_GUARD:
+            debug.dbg("EDGE_START_DECISION", verdict="DUPLICATE_AFTER_STOP")
+            return "EDGE_IGNORED"
 
         try:
             cx, cy = get_cursor_pos()
@@ -392,6 +413,7 @@ class DaemonState:
 
     def _handle_edge_stop(self) -> str:
         result = self.edge_scroll.stop()
+        self._last_edge_stop = time.monotonic()
         debug.dbg("EDGE_STOP", verdict=result)
         return result
 

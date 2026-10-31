@@ -1,6 +1,7 @@
 """Tests for canvas.daemon — DaemonState and helper functions."""
 
 import json
+import time
 from unittest.mock import MagicMock, patch
 
 from canvas.daemon import DaemonState, _lua_escape
@@ -830,3 +831,71 @@ def test_edge_scroll_move_zero_delta_is_noop():
     ds.edge_scroll_move(0, 0)
 
     ipc.eval_lua.assert_not_called()
+
+
+# --- the drag bind's release re-run -----------------------------------------
+
+
+def _armable_ipc() -> MagicMock:
+    """An IPC double that answers every edge-start query, however many arrive.
+
+    A fixed list would run out and turn a second start into `EDGE_NO_WORKSPACE`,
+    which would make a missing guard look like a refused start rather than an
+    armed one.
+    """
+    clients = _clients_json(
+        '[{"address":"0xabc","floating":true,"at":[100,200],"size":[500,300],'
+        '"workspace":{"id":3}}]'
+    )
+
+    def send(cmd: str) -> str:
+        if cmd == "j/activeworkspace":
+            return json.dumps({"id": 3})
+        if cmd == "j/activewindow":
+            return json.dumps({"address": "0xabc"})
+        if cmd == "j/monitors":
+            return '[{"focused":true,"x":0,"y":0,"width":1920,"height":1080}]'
+        return clients
+
+    ipc = MagicMock()
+    ipc.send.side_effect = send
+    return ipc
+
+
+def test_edge_start_right_after_a_stop_is_ignored():
+    """`window.drag()` makes Hyprland re-run the press bind when the button comes
+    up, so a second edge-start lands milliseconds after edge-stop. Left alone it
+    arms a session with nothing held."""
+    ds = _make_daemon_state(_armable_ipc())
+
+    with patch("canvas.daemon.get_cursor_pos", return_value=(350, 350)):
+        assert ds.handle_ipc("EDGE_START") == "EDGE_ON"
+        assert ds.handle_ipc("EDGE_STOP") == "EDGE_OFF"
+        assert ds.handle_ipc("EDGE_START") == "EDGE_IGNORED"
+
+    assert ds.edge_scroll.active is False
+
+
+def test_edge_start_after_the_guard_window_is_honored():
+    """The guard is a few milliseconds of slop, not a latch: a later press is a
+    real gesture and must arm."""
+    ds = _make_daemon_state(_armable_ipc())
+    ds._last_edge_stop = time.monotonic() - ds._EDGE_RESTART_GUARD - 0.1
+
+    with patch("canvas.daemon.get_cursor_pos", return_value=(350, 350)):
+        assert ds.handle_ipc("EDGE_START") == "EDGE_ON"
+
+    assert ds.edge_scroll.active is True
+
+
+def test_an_ignored_edge_start_still_cancels_a_running_pan():
+    """Modes are mutually exclusive, and EDGE_START is what enforces it. The
+    re-run guard must not open a hole where both keep running."""
+    ds = _make_daemon_state(_armable_ipc())
+    ds.panning.start_pan()
+    ds._last_edge_stop = time.monotonic()
+
+    with patch("canvas.daemon.get_cursor_pos", return_value=(350, 350)):
+        assert ds.handle_ipc("EDGE_START") == "EDGE_IGNORED"
+
+    assert ds.panning.pan_active is False
