@@ -135,7 +135,7 @@ end, { mouse = true })
 
 hl.bind("SUPER + SHIFT + mouse:272", function()
     hl.exec_cmd("canvas-ctl pan-stop")
-end, { release = true })
+end, { release = true, transparent = true })
 
 -- Canvas: edge-scroll (drag window to screen edge → camera follows)
 hl.bind("SUPER + mouse:272", function()
@@ -145,7 +145,7 @@ end, { mouse = true })
 
 hl.bind("SUPER + mouse:272", function()
     hl.exec_cmd("canvas-ctl edge-stop")
-end, { release = true })
+end, { release = true, transparent = true })
 
 -- Canvas: center view on the floating window under the cursor
 hl.bind("SUPER + mouse:274", hl.dsp.exec_cmd("canvas-ctl center-cursor"), { mouse = true })
@@ -162,10 +162,11 @@ hl.bind("SUPER + SHIFT + V", hl.dsp.exec_cmd("canvas-ctl canvas-toggle-single"))
 hl.bind("SUPER + SHIFT + G", hl.dsp.exec_cmd("canvas-ctl toggle"))
 ```
 
-The press/release pairs carry `mouse = true` only on the press half. Since
-Hyprland 0.57 that option is parsed and conflicts with `release`: a bind holding
-both is a config error and never registers. Before 0.57 the option was ignored,
-so the release halves omit it and the whole block works on 0.55 and newer.
+Two things about the options in the pairs above. `mouse = true` marks a bind as a
+mouse bind and conflicts with `release`, so the release halves omit it.
+`transparent = true` keeps a release half from being shadowed by its own press
+half: while the button is held, the press half has already consumed the event,
+and without the flag the release half never runs.
 
 ### 3. Control commands
 
