@@ -635,6 +635,8 @@ def run() -> None:
         level=logging.DEBUG if debug.enabled() else logging.INFO,
         format="%(name)s: %(message)s",
     )
+    # Trace lines are formatted without the logger name; warnings keep it.
+    debug.configure()
     if debug.enabled():
         import os
 

@@ -47,7 +47,7 @@ def test_dbg_formats_fields_when_enabled(monkeypatch):
         debug.dbg("EDGE_DISARM", s=3, reason="cursor_left")
 
     line = mock_log.debug.call_args[0][0]
-    parts = line.split(" ")
+    parts = line.split()
     assert parts[1] == "EDGE_DISARM"
     assert "s=3" in parts
     assert "reason=cursor_left" in parts
@@ -62,7 +62,7 @@ def test_dbg_tuple_field_rendering(monkeypatch):
     with patch("canvas.debug.log") as mock_log:
         debug.dbg("T", cursor=(10, 20))
 
-    assert "cursor=(10, 20)" in mock_log.debug.call_args[0][0]
+    assert "cursor=10,20" in mock_log.debug.call_args[0][0]
 
 
 def test_level_two_is_verbose(monkeypatch):
@@ -85,3 +85,95 @@ def test_dbg2_emits_only_at_the_verbose_level(monkeypatch):
 
     assert log.debug.call_count == 1
     debug.reset_for_tests()
+
+
+def test_booleans_render_as_words(monkeypatch):
+    monkeypatch.setenv("CANVAS_DEBUG", "1")
+    debug.enable_from_env()
+
+    with patch("canvas.debug.log") as mock_log:
+        debug.dbg("T", confirmed=True, hidden=False)
+
+    line = mock_log.debug.call_args[0][0]
+    assert "confirmed=true" in line
+    assert "hidden=false" in line
+
+
+def test_mappings_and_none_render_compactly(monkeypatch):
+    monkeypatch.setenv("CANVAS_DEBUG", "1")
+    debug.enable_from_env()
+
+    with patch("canvas.debug.log") as mock_log:
+        debug.dbg("T", counts={"a": 1, "b": 2}, addr=None)
+
+    line = mock_log.debug.call_args[0][0]
+    assert "counts={a:1,b:2}" in line
+    assert "addr=none" in line
+
+
+def test_a_value_containing_spaces_is_quoted(monkeypatch):
+    monkeypatch.setenv("CANVAS_DEBUG", "1")
+    debug.enable_from_env()
+
+    with patch("canvas.debug.log") as mock_log:
+        debug.dbg("T", error="socket went away")
+
+    # Otherwise the pair would split into two fields.
+    assert 'error="socket went away"' in mock_log.debug.call_args[0][0]
+
+
+def test_the_filter_keeps_only_matching_events(monkeypatch):
+    monkeypatch.setenv("CANVAS_DEBUG", "1")
+    monkeypatch.setenv("CANVAS_DEBUG_FILTER", "EDGE")
+    debug.enable_from_env()
+
+    with patch("canvas.debug.log") as mock_log:
+        debug.dbg("EDGE_DISARM", reason="idle")
+        debug.dbg("PAN_STOP")
+
+    assert mock_log.debug.call_count == 1
+    assert "EDGE_DISARM" in mock_log.debug.call_args[0][0]
+
+
+def test_json_format_is_one_object_per_line(monkeypatch):
+    import json as json_module
+
+    monkeypatch.setenv("CANVAS_DEBUG", "1")
+    monkeypatch.setenv("CANVAS_DEBUG_FORMAT", "json")
+    debug.enable_from_env()
+
+    with patch("canvas.debug.log") as mock_log:
+        debug.dbg("EDGE_CONFIRMED", s=1, geo=(1, 2, 3, 4))
+
+    payload = json_module.loads(mock_log.debug.call_args[0][0])
+    assert payload["event"] == "EDGE_CONFIRMED"
+    assert payload["fields"] == {"s": 1, "geo": [1, 2, 3, 4]}
+    assert isinstance(payload["ts"], float)
+    assert "\n" not in mock_log.debug.call_args[0][0]
+
+
+def test_configure_formats_without_the_logger_name():
+    """run() formats the root logger as "name: message"; a trace line has to
+    stay a bare timestamp, which is the documented shape."""
+    import logging as logging_module
+
+    saved_handlers = list(debug.log.handlers)
+    saved_propagate = debug.log.propagate
+    saved_configured = debug._configured  # type: ignore[attr-defined]
+    try:
+        debug.log.handlers = []
+        debug.log.propagate = True
+        debug._configured = False  # type: ignore[attr-defined]
+        debug.configure()
+        debug.configure()  # idempotent
+
+        assert debug.log.propagate is False
+        assert len(debug.log.handlers) == 1
+        record = logging_module.LogRecord(
+            "canvas.debug", logging_module.DEBUG, "", 0, "0.1 EVENT", None, None
+        )
+        assert debug.log.handlers[0].format(record) == "0.1 EVENT"
+    finally:
+        debug.log.handlers = saved_handlers
+        debug.log.propagate = saved_propagate
+        debug._configured = saved_configured  # type: ignore[attr-defined]

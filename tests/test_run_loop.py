@@ -10,6 +10,7 @@ handlers, not about this function.
 """
 
 import copy
+from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -118,31 +119,37 @@ def _drive(
     else:
         idle_stop = MagicMock(return_value=False)
 
-    with (
-        patch("canvas.daemon.threading.Event", return_value=stop),
-        patch("canvas.daemon.threading.Thread", side_effect=make_thread),
-        patch("canvas.daemon.signal.signal") as set_signal,
-        patch("canvas.daemon.load", return_value=copy.deepcopy(DEFAULT_CONFIG)),
-        patch("canvas.daemon.HyprIPC.from_env", return_value=MagicMock()),
-        patch("canvas.daemon.PanningState", return_value=panning),
-        patch("canvas.daemon.EdgeScrollState", return_value=edge_scroll),
-        patch("canvas.daemon.Navigator", return_value=navigator),
-        patch("canvas.daemon.IpcServer", return_value=ipc_server),
-        patch("canvas.daemon.acquire_singleton"),
-        patch("canvas.daemon.time.sleep"),
-        patch("canvas.daemon.debug.enable_from_env"),
-        patch("canvas.daemon.debug.enabled", return_value=tracing),
-        patch("canvas.daemon.debug.dbg") as dbg,
-        patch.object(DaemonState, "handle_idle_pan_stop", new=idle_stop),
-        patch.object(DaemonState, "rearm_spawn_rules_if_due", return_value=False),
-        patch.object(
-            DaemonState,
-            "move_windows_to_delta",
-            side_effect=(RuntimeError("boom") if move_raises else None),
-        ) as move,
-        patch.object(DaemonState, "edge_scroll_move") as edge_move,
-        patch.object(DaemonState, "restore_baselines") as restore,
-    ):
+    # ExitStack, not a parenthesised `with`: twenty patches in one statement
+    # trips CPython's statically-nested-block limit.
+    with ExitStack() as stack:
+        enter = stack.enter_context
+        enter(patch("canvas.daemon.threading.Event", return_value=stop))
+        enter(patch("canvas.daemon.threading.Thread", side_effect=make_thread))
+        set_signal = enter(patch("canvas.daemon.signal.signal"))
+        enter(patch("canvas.daemon.load", return_value=copy.deepcopy(DEFAULT_CONFIG)))
+        enter(patch("canvas.daemon.HyprIPC.from_env", return_value=MagicMock()))
+        enter(patch("canvas.daemon.PanningState", return_value=panning))
+        enter(patch("canvas.daemon.EdgeScrollState", return_value=edge_scroll))
+        enter(patch("canvas.daemon.Navigator", return_value=navigator))
+        enter(patch("canvas.daemon.IpcServer", return_value=ipc_server))
+        enter(patch("canvas.daemon.acquire_singleton"))
+        enter(patch("canvas.daemon.time.sleep"))
+        enter(patch("canvas.daemon.debug.enable_from_env"))
+        enter(patch("canvas.daemon.debug.configure"))
+        enter(patch("canvas.daemon.debug.enabled", return_value=tracing))
+        dbg = enter(patch("canvas.daemon.debug.dbg"))
+        enter(patch.object(DaemonState, "handle_idle_pan_stop", new=idle_stop))
+        enter(patch.object(DaemonState, "rearm_spawn_rules_if_due", return_value=False))
+        move = enter(
+            patch.object(
+                DaemonState,
+                "move_windows_to_delta",
+                side_effect=(RuntimeError("boom") if move_raises else None),
+            )
+        )
+        edge_move = enter(patch.object(DaemonState, "edge_scroll_move"))
+        restore = enter(patch.object(DaemonState, "restore_baselines"))
+
         handle = SimpleNamespace(
             move=move,
             edge_move=edge_move,
