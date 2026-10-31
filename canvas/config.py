@@ -46,7 +46,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "canvas": {
         "preserve_geometry": True,
-        "auto_float": False,
+        "auto_float": True,
         "spawn": {
             "center": True,
             "default": "50%x60%",

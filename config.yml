@@ -36,7 +36,7 @@ canvas:
   preserve_geometry: true      # remember where you panned windows to, restore on
                                # the next ON; windows you did not move return to
                                # the exact box they had while tiled
-  auto_float: false            # shape windows opened while canvas is ON:
+  auto_float: true             # shape windows opened while canvas is ON:
                                # float + size + centre them at map time
   spawn:
     center: true               # centre new canvas windows on their monitor

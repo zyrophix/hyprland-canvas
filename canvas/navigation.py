@@ -8,7 +8,6 @@ from typing import Any
 
 from canvas import debug, spawnrules, toggle_state
 from canvas.hypr import LUA_DISPATCH_HELPER, HyprIPC
-from canvas.spawnrules import Workarea
 
 log = logging.getLogger("canvas.navigation")
 
@@ -483,7 +482,6 @@ class Navigator:
         # record them. Only needed when spawn rules can add floating windows.
         pre_floating: set[str] = set()
         rule_names: list[str] = []
-        workarea: Workarea | None = None
         if self._auto_float:
             captured_floating = self._snapshot_floating_addresses(workspace_id)
             if captured_floating is None:
@@ -492,16 +490,25 @@ class Navigator:
 
             # Register before touching state or the compositor: a failure here
             # leaves both untouched, so no rollback is needed.
+            #
+            # A workspace whose monitor is not in j/monitors — one on a disabled
+            # output, for instance — has no workarea for a percent size to be a
+            # fraction of. That is not a reason to refuse the toggle: canvas
+            # mode is about the windows already open, and the spawn rule is for
+            # the ones that arrive later. Enter the mode without it.
             workarea = spawnrules.resolve_workareas(self._ipc).get(workspace_id)
             if workarea is None:
-                log.warning("canvas ON: no workarea for workspace %s", workspace_id)
-                return "ERROR:SPAWN_RULE_FAILED"
-            try:
-                built = spawnrules.build_rules(self._spawn_cfg, workspace_id, workarea)
-                rule_names = spawnrules.register(built, self._ipc)
-            except spawnrules.SpawnRuleError as e:
-                log.warning("canvas ON: spawn rules failed: %s", e)
-                return "ERROR:SPAWN_RULE_FAILED"
+                log.warning(
+                    "canvas ON: no workarea for workspace %s, entering without spawn rules",
+                    workspace_id,
+                )
+            else:
+                try:
+                    built = spawnrules.build_rules(self._spawn_cfg, workspace_id, workarea)
+                    rule_names = spawnrules.register(built, self._ipc)
+                except spawnrules.SpawnRuleError as e:
+                    log.warning("canvas ON: spawn rules failed: %s", e)
+                    return "ERROR:SPAWN_RULE_FAILED"
 
         next_pre = dict(self._pre_floating)
         next_pre[workspace_id] = pre_floating

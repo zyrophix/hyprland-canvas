@@ -336,3 +336,20 @@ def test_build_rules_no_longer_reads_a_rules_key():
     assert [name for name, _ in build_rules(cfg, 1, (0, 0, 1920, 1036))] == [
         "canvas-spawn-ws1-default"
     ]
+
+
+# --- auto_float is on by default ------------------------------------------
+
+
+def test_auto_float_is_on_by_default():
+    """Windows arriving on a canvas workspace used to land tiled and on top of
+    each other unless the user found the setting. Shaping them is the point of
+    the feature, so the default is on."""
+    assert DEFAULT_CONFIG["canvas"]["auto_float"] is True
+
+
+def test_the_bundled_template_ships_auto_float_on():
+    """config.yml is the copy-paste template; it has to agree with the default."""
+    cfg = load("/nonexistent/path/config.yml", skip_user=True)
+
+    assert cfg["canvas"]["auto_float"] is True

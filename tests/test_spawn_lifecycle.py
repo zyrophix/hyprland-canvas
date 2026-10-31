@@ -87,18 +87,27 @@ def test_on_registers_rules_before_touching_state():
     set_float.assert_not_called()
 
 
-def test_on_without_workarea_fails_cleanly():
+def test_on_without_workarea_still_enters_canvas_mode():
+    """A workspace with no resolvable monitor has no workarea for a percent
+    size to be a fraction of. Canvas mode is about the windows already open and
+    the spawn rule is for later ones, so the toggle proceeds without the rule
+    rather than refusing — the old behaviour made canvas-toggle fail outright on
+    a workspace on a disabled output."""
     ipc = _ipc_with([_window("0x1")], workspaces=[{"id": 1, "monitorID": "null"}])
     nav = _navigator(ipc)
     with (
         patch.object(nav, "_get_active_workspace_id", return_value=1),
         patch("canvas.navigation.toggle_state.save") as msave,
-        patch.object(nav, "_set_all_floating") as set_float,
+        patch.object(nav, "_set_all_floating", return_value=True) as set_float,
+        patch("canvas.navigation.spawnrules.register") as reg,
     ):
-        assert nav.canvas_toggle() == "ERROR:SPAWN_RULE_FAILED"
+        assert nav.canvas_toggle() == "CANVAS_ON"
 
-    msave.assert_not_called()
-    set_float.assert_not_called()
+    reg.assert_not_called()
+    set_float.assert_called_once()
+    msave.assert_called_once()
+    # No rule was registered, so none is recorded for a later OFF to retract.
+    assert nav._spawn_rules[1] == []
 
 
 def test_on_compositor_failure_disables_the_rules():
