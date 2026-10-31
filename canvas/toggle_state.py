@@ -57,10 +57,6 @@ class WorkspaceState(TypedDict):
 State = dict[int, WorkspaceState]
 
 
-def _empty_workspace() -> WorkspaceState:
-    return {"active": False, "tiled": {}, "floating": {}, "pre_floating": [], "spawn_rules": []}
-
-
 def _parse_addresses(raw: Any) -> list[str]:
     if not isinstance(raw, list):
         return []

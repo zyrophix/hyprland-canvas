@@ -903,13 +903,6 @@ class Navigator:
             )
         return self._apply_floating_geos(workspace_id, targets)
 
-    def _restore_floating_geos(self, workspace_id: int) -> bool:
-        """Move newly floated snapshot windows to stored floating geometry."""
-        if not self._preserve_geometry:
-            return True
-        stored = self._floating_geos.get(workspace_id, {})
-        return self._apply_floating_geos(workspace_id, stored)
-
     def _apply_floating_geos(
         self, workspace_id: int, stored: dict[str, dict[str, list[int]]]
     ) -> bool:
