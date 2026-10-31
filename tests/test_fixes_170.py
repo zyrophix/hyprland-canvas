@@ -5,8 +5,14 @@ covers were reverted, except where noted.
 """
 
 import json
+import os
+import stat
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from canvas import toggle_state
+from canvas.ipc import _MY_UID, _ensure_private_dir, runtime_dir, send_command
 from canvas.navigation import FSMODE_FULLSCREEN, Navigator, fullscreen_state
 
 
@@ -176,3 +182,83 @@ def test_center_window_lua_skips_excluded_addresses():
     lua = ipc.eval_lua.call_args.args[0]
     assert '["0x9"] = true' in lua
     assert "if not skip[tostring(w.address)] then" in lua
+
+
+# --- the /tmp fallback runtime directory ----------------------------------
+#
+# $XDG_RUNTIME_DIR and /run/user/<uid> are made by the session manager. The
+# fallback is the one path another local user can create first, so it is the
+# one that has to be created private and checked.
+
+
+def test_ensure_private_dir_creates_it_0700(tmp_path):
+    target = tmp_path / "user" / "1000"
+
+    _ensure_private_dir(str(target))
+
+    assert target.is_dir()
+    assert stat.S_IMODE(target.stat().st_mode) == 0o700
+
+
+def test_ensure_private_dir_rejects_a_symlink(tmp_path):
+    real = tmp_path / "elsewhere"
+    real.mkdir()
+    link = tmp_path / "user" / "1000"
+    link.parent.mkdir()
+    link.symlink_to(real)
+
+    with pytest.raises(RuntimeError, match="is not a directory"):
+        _ensure_private_dir(str(link))
+
+
+def test_ensure_private_dir_rejects_a_foreign_owner(tmp_path):
+    target = tmp_path / "user" / "1000"
+    target.mkdir(parents=True)
+
+    with (
+        patch("canvas.ipc._MY_UID", _MY_UID + 1),
+        pytest.raises(RuntimeError, match="owned by uid"),
+    ):
+        _ensure_private_dir(str(target))
+
+
+def test_ensure_private_dir_rejects_a_regular_file(tmp_path):
+    target = tmp_path / "user" / "1000"
+    target.parent.mkdir()
+    target.write_text("not a directory")
+
+    with pytest.raises(RuntimeError, match="could not create"):
+        _ensure_private_dir(str(target))
+
+
+def test_runtime_dir_hardens_the_tmp_fallback():
+    with (
+        patch("canvas.ipc.os.path.isdir", return_value=False),
+        patch.dict(os.environ, {"XDG_RUNTIME_DIR": ""}),
+        patch("canvas.ipc._ensure_private_dir") as ensure,
+    ):
+        assert runtime_dir() == f"/tmp/user/{_MY_UID}"
+
+    ensure.assert_called_once_with(f"/tmp/user/{_MY_UID}")
+
+
+def test_runtime_dir_takes_xdg_at_face_value():
+    """It is set by the session manager, so it needs no check of its own."""
+    with (
+        patch("canvas.ipc.os.path.isdir", return_value=False),
+        patch.dict(os.environ, {"XDG_RUNTIME_DIR": "/run/user/4242"}),
+    ):
+        assert runtime_dir() == "/run/user/4242"
+
+
+def test_toggle_state_path_lives_under_the_runtime_dir():
+    with patch("canvas.toggle_state.runtime_dir", return_value="/run/user/4242"):
+        assert toggle_state.default_path() == "/run/user/4242/canvas/toggle-state.json"
+
+
+def test_send_command_reports_an_unusable_runtime_dir():
+    """The client contract is a string starting with ERROR:, not a traceback."""
+    with patch("canvas.ipc._default_socket_path", side_effect=RuntimeError("owned by uid 0")):
+        result = send_command("PING")
+
+    assert result.startswith("ERROR: owned by uid 0")

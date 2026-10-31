@@ -32,6 +32,7 @@ from contextlib import suppress
 from typing import Any, TypedDict
 
 from canvas import debug
+from canvas.ipc import runtime_dir
 
 log = logging.getLogger("canvas.toggle")
 
@@ -67,14 +68,7 @@ def _parse_addresses(raw: Any) -> list[str]:
 
 
 def default_path() -> str:
-    uid = os.getuid()
-    run_dir = f"/run/user/{uid}"
-    base = (
-        run_dir
-        if os.path.isdir(run_dir)
-        else os.environ.get("XDG_RUNTIME_DIR", f"/tmp/user/{uid}")
-    )
-    return os.path.join(base, "canvas", "toggle-state.json")
+    return os.path.join(runtime_dir(), "canvas", "toggle-state.json")
 
 
 def _parse_snapshot(raw_snap: Any) -> Snapshot:
@@ -211,7 +205,7 @@ def save(state: State, path: str | None = None) -> None:
     file = path or default_path()
     tmp = file + ".tmp"
     try:
-        os.makedirs(os.path.dirname(file), exist_ok=True)
+        os.makedirs(os.path.dirname(file), mode=0o700, exist_ok=True)
         # Sort for deterministic output
         serializable: dict[str, Any] = {"_v": FORMAT_VERSION}
         for ws, sections in sorted(state.items()):

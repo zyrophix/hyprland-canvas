@@ -57,6 +57,11 @@ def daemon_main(argv: list[str] | None = None) -> None:
     except ConfigError as exc:
         print(f"Invalid configuration:\n{exc}", file=sys.stderr)
         sys.exit(1)
+    except RuntimeError as exc:
+        # An unusable runtime directory, for instance one another local user
+        # owns. Refusing to start beats trusting it.
+        print(f"{exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _send(cmd: str) -> None:

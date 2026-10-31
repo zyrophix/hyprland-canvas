@@ -13,6 +13,7 @@ import fcntl
 import logging
 import os
 import socket
+import stat
 import struct
 import threading
 from collections.abc import Callable
@@ -27,12 +28,54 @@ _SERVER_RECV_TIMEOUT = 1.0  # must stay well below _CLIENT_TIMEOUT so queued
 _MAX_CONTROL_RESPONSE = 64 * 1024
 
 
-def _default_socket_path() -> str:
-    uid = os.getuid()
-    run_dir = f"/run/user/{uid}"
+def _ensure_private_dir(path: str) -> None:
+    """Create `path` with mode 0700, then confirm it is a directory we own.
+
+    lstat rather than stat: a symlink dropped in place of the directory has to
+    fail the directory test, not be followed into somebody else's tree.
+    """
+    try:
+        os.makedirs(path, mode=0o700, exist_ok=True)
+    except OSError as e:
+        raise RuntimeError(f"could not create runtime directory {path}: {e}") from e
+
+    st = os.lstat(path)
+    if not stat.S_ISDIR(st.st_mode):
+        raise RuntimeError(f"runtime directory {path} is not a directory; refusing to use it")
+    if st.st_uid != _MY_UID:
+        raise RuntimeError(
+            f"runtime directory {path} is owned by uid {st.st_uid}, not {_MY_UID}; "
+            "refusing to use it"
+        )
+
+
+def runtime_dir() -> str:
+    """Directory holding the control socket and the toggle state.
+
+    `$XDG_RUNTIME_DIR` and `/run/user/<uid>` are created and owned by the
+    session manager, so they are taken as they are. `/tmp/user/<uid>` is the
+    fallback for a session that has neither, and it is the one path another
+    local user can create first: /tmp is world-writable and the name is just
+    our uid. So that one is created 0700, and an existing one is used only when
+    it is a real directory we own — the alternative is reading window addresses,
+    and binding a socket, out of a directory somebody else controls.
+
+    Raises RuntimeError when the fallback cannot be trusted, because every
+    caller is about to trust what is inside it.
+    """
+    run_dir = f"/run/user/{_MY_UID}"
     if os.path.isdir(run_dir):
-        return os.path.join(run_dir, "canvas.sock")
-    return os.path.join(os.environ.get("XDG_RUNTIME_DIR", f"/tmp/user/{uid}"), "canvas.sock")
+        return run_dir
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg:
+        return xdg
+    fallback = f"/tmp/user/{_MY_UID}"
+    _ensure_private_dir(fallback)
+    return fallback
+
+
+def _default_socket_path() -> str:
+    return os.path.join(runtime_dir(), "canvas.sock")
 
 
 def _get_peer_uid(conn: socket.socket) -> int | None:
@@ -156,7 +199,12 @@ def send_command(cmd: str, sock_path: str | None = None) -> str:
 
     Returns a string starting with "ERROR:" on any failure.
     """
-    path = sock_path or _default_socket_path()
+    try:
+        path = sock_path or _default_socket_path()
+    except RuntimeError as e:
+        # The client contract is a string starting with ERROR: on any failure,
+        # and an unusable runtime directory is one.
+        return f"ERROR: {e}"
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
