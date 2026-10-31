@@ -5,6 +5,7 @@ covers were reverted, except where noted.
 """
 
 import json
+import logging
 import os
 import stat
 from unittest.mock import MagicMock, patch
@@ -434,3 +435,81 @@ def test_rearm_runs_once_per_interval():
     # And the stamp it just took holds the next call off.
     assert ds.rearm_spawn_rules_if_due() is False
     assert navigator.rearm_spawn_rules.call_count == 1
+
+
+def _rearm_ipc(workspaces: list[dict]) -> MagicMock:
+    ipc = MagicMock()
+    ipc.eval_lua.return_value = "ok"
+    ipc.send.side_effect = lambda cmd: (
+        json.dumps([{"id": 0, "x": 0, "y": 0, "width": 1920, "height": 1080}])
+        if cmd == "j/monitors"
+        else json.dumps(workspaces)
+    )
+    return ipc
+
+
+def test_rearm_reports_a_missing_workarea_once(caplog):
+    """A workspace with no windows is absent from j/workspaces, so it has no
+    monitor to take a workarea from. That is expected, and the re-arm runs on a
+    timer — repeating the line every interval is noise, not information."""
+    # No workspaces at all, so nothing resolves for workspace 3.
+    nav = _make_nav(
+        _rearm_ipc([]), auto_float=True, spawn_cfg={"center": True, "default": "50%x60%"}
+    )
+    nav._canvas_mode_workspaces = {3: {}}
+
+    with caplog.at_level(logging.WARNING, logger="canvas.navigation"):
+        nav.rearm_spawn_rules()
+        nav.rearm_spawn_rules()
+        nav.rearm_spawn_rules()
+
+    reported = [r.getMessage() for r in caplog.records if "no workarea" in r.getMessage()]
+    assert len(reported) == 1, reported
+
+
+def test_rearm_reports_again_after_the_workarea_disappears(caplog):
+    """Once per episode, not once forever.
+
+    This one does not pin the fix — the version before it also printed twice.
+    It pins the other boundary: the suppression is not permanent, which is what
+    a naive "remember and never warn again" would get wrong.
+    """
+    workspaces: list[dict] = []
+    nav = _make_nav(
+        _rearm_ipc(workspaces), auto_float=True, spawn_cfg={"center": True, "default": "50%x60%"}
+    )
+    nav._canvas_mode_workspaces = {3: {}}
+    ipc = nav._ipc
+
+    with caplog.at_level(logging.WARNING, logger="canvas.navigation"):
+        nav.rearm_spawn_rules()  # absent -> reported
+        workspaces.append({"id": 3, "monitorID": 0})
+        nav.rearm_spawn_rules()  # present -> registered, mark cleared
+        workspaces.clear()
+        nav.rearm_spawn_rules()  # absent again -> reported again
+
+    reported = [r.getMessage() for r in caplog.records if "no workarea" in r.getMessage()]
+    assert len(reported) == 2, reported
+    assert nav._spawn_rules == {3: ["canvas-spawn-ws3-default"]}
+    assert ipc.eval_lua.call_count == 1
+
+
+def test_rehydrate_starts_the_suppression_afresh(caplog):
+    """A reload is a deliberate request to re-read everything, so it reports
+    again rather than staying quiet about a condition the user just asked
+    about."""
+    nav = _make_nav(
+        _rearm_ipc([]), auto_float=True, spawn_cfg={"center": True, "default": "50%x60%"}
+    )
+    nav._canvas_mode_workspaces = {3: {}}
+
+    with (
+        caplog.at_level(logging.WARNING, logger="canvas.navigation"),
+        patch("canvas.navigation.toggle_state.save"),
+    ):
+        nav.rearm_spawn_rules()  # reported once
+        nav.rearm_spawn_rules()  # suppressed
+        nav.rehydrate_spawn_rules()  # a reload re-reports
+
+    reported = [r.getMessage() for r in caplog.records if "no workarea" in r.getMessage()]
+    assert len(reported) == 2, reported

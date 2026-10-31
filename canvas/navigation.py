@@ -95,6 +95,9 @@ class Navigator:
         self._floating_geos: dict[int, dict[str, dict[str, list[int]]]] = {}
         self._pre_floating: dict[int, set[str]] = {}
         self._spawn_rules: dict[int, list[str]] = {}
+        # Workspaces already reported as having no workarea, so the re-arm timer
+        # does not repeat the same line every interval.
+        self._unresolved_spawn_ws: set[int] = set()
         raw = toggle_state.load()
         for ws, sections in raw.items():
             if isinstance(sections, list):
@@ -737,20 +740,35 @@ class Navigator:
         forgotten. Nothing reports that, which is why this runs on a timer. While
         the rule is still live the name is known, and `hl.window_rule` reuses the
         existing rule instead of adding a second one.
+
+        Callers must hold `_operation_lock`: the re-arm is driven from the main
+        loop as well, and it reads and reassigns `_unresolved_spawn_ws`.
         """
         if not self._auto_float or not self._canvas_mode_workspaces:
+            self._unresolved_spawn_ws = set()
             return
         workareas = spawnrules.resolve_workareas(self._ipc)
+        unresolved: set[int] = set()
         for ws_id in sorted(self._canvas_mode_workspaces):
             workarea = workareas.get(ws_id)
             if workarea is None:
-                log.warning("spawn rules: no workarea for workspace %s", ws_id)
+                # Expected rather than exceptional: a workspace with no windows
+                # is not in j/workspaces, so there is no monitor to take a
+                # workarea from. It gets its rule once something opens on it, so
+                # the line is worth printing once per workspace — this runs on a
+                # timer, and repeating it every interval is noise.
+                unresolved.add(ws_id)
+                if ws_id not in self._unresolved_spawn_ws:
+                    log.warning("spawn rules: no workarea for workspace %s", ws_id)
                 continue
             try:
                 built = spawnrules.build_rules(self._spawn_cfg, ws_id, workarea)
                 self._spawn_rules[ws_id] = spawnrules.register(built, self._ipc)
             except spawnrules.SpawnRuleError as e:
                 log.warning("spawn rules for workspace %s failed: %s", ws_id, e)
+        # Rebuilt every pass, so a workspace that resolved or left canvas mode is
+        # forgotten instead of its silence being carried forward.
+        self._unresolved_spawn_ws = unresolved
 
     def rehydrate_spawn_rules(self) -> None:
         """Re-arm spawn rules after a daemon restart.
@@ -771,6 +789,10 @@ class Navigator:
                     stale,
                 )
 
+        # A reload is a deliberate request to re-read everything, so the
+        # one-per-workspace suppression starts afresh rather than hiding a
+        # condition the user has just asked about.
+        self._unresolved_spawn_ws = set()
         self.rearm_spawn_rules()
 
         try:
