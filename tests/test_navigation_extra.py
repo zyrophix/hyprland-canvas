@@ -3,6 +3,8 @@
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from canvas.navigation import Navigator, _safe_int
 from canvas.toggle_state import ToggleStateError
 
@@ -496,3 +498,167 @@ def test_navigate_passes_workspace_to_pan():
 
     assert ipc.eval_lua.call_count == 1
     assert "workspace = 9" in ipc.eval_lua.call_args[0][0]
+
+
+# --- canvas_toggle_single ---------------------------------------------------
+#
+# Only the IPC dispatch was covered: a mocked navigator was asserted to have been
+# called. These exercise the command itself.
+
+
+def test_canvas_toggle_single_needs_focus():
+    nav = _make_nav()
+
+    with patch.object(nav, "_get_focused_window", return_value=None):
+        assert nav.canvas_toggle_single() == "ERROR:NO_FOCUS"
+
+
+def test_canvas_toggle_single_needs_an_address():
+    nav = _make_nav()
+
+    with patch.object(nav, "_get_focused_window", return_value={"class": "kitty"}):
+        assert nav.canvas_toggle_single() == "ERROR:NO_FOCUS"
+
+
+def test_canvas_toggle_single_rejects_a_malformed_address():
+    """The address is interpolated into a Lua string literal, so it is checked."""
+    nav = _make_nav()
+
+    with patch.object(nav, "_get_focused_window", return_value={"address": 'a"] end)'}):
+        assert nav.canvas_toggle_single() == "ERROR:BAD_ADDRESS"
+
+    nav._ipc.eval_lua.assert_not_called()
+
+
+def test_canvas_toggle_single_tiles_a_floating_window():
+    ipc = MagicMock()
+    ipc.eval_lua.return_value = "ok"
+    nav = _make_nav(ipc)
+
+    with patch.object(
+        nav, "_get_focused_window", return_value={"address": "0xabc", "floating": True}
+    ):
+        assert nav.canvas_toggle_single() == "TILED"
+
+    lua = ipc.eval_lua.call_args.args[0]
+    assert 'tostring(win.address) == "0xabc"' in lua
+    assert "dsp.window.float" in lua
+    assert 'action = "toggle"' in lua
+
+
+def test_canvas_toggle_single_floats_a_tiled_window():
+    ipc = MagicMock()
+    ipc.eval_lua.return_value = "ok"
+    nav = _make_nav(ipc)
+
+    with patch.object(
+        nav, "_get_focused_window", return_value={"address": "0xabc", "floating": False}
+    ):
+        assert nav.canvas_toggle_single() == "FLOATED"
+
+
+def test_canvas_toggle_single_reports_a_lua_failure():
+    ipc = MagicMock()
+    ipc.eval_lua.side_effect = RuntimeError("compositor said no")
+    nav = _make_nav(ipc)
+
+    with patch.object(nav, "_get_focused_window", return_value={"address": "0xabc"}):
+        assert nav.canvas_toggle_single() == "ERROR:TOGGLE_FAILED"
+
+
+# --- failure paths around snapshotting and applying geometry ----------------
+
+
+def test_tile_windows_with_an_empty_snapshot_does_nothing():
+    ipc = MagicMock()
+    nav = _make_nav(ipc)
+
+    assert nav._tile_windows(1, {}) is True
+
+    ipc.eval_lua.assert_not_called()
+
+
+def test_get_monitor_center_skips_monitors_without_usable_geometry():
+    ipc = MagicMock()
+    ipc.send.return_value = json.dumps(
+        [
+            {"focused": True},
+            {"x": 0, "y": 0, "width": 0, "height": 0},
+            {"x": 0, "y": 0, "width": 1920, "height": 1080, "focused": True},
+        ]
+    )
+    nav = _make_nav(ipc)
+
+    assert nav._get_monitor_center() == (960, 540)
+
+
+@pytest.mark.parametrize(("direction", "at"), [("right", (-500, 0)), ("left", (500, 0))])
+def test_find_spatial_target_wraps_horizontally(direction, at):
+    """Nothing in that direction, so the farthest in the opposite one is taken."""
+    nav = _make_nav()
+    current = _make_window("kitty", "0x1", 0, 0, 100, 100)
+    other = _make_window("kitty", "0x2", at[0], at[1], 100, 100)
+
+    found = nav._find_spatial_target(
+        [current, other], nav._window_bounds(current), nav._window_center(current), direction
+    )
+
+    assert found is other
+
+
+@pytest.mark.parametrize(("direction", "at"), [("down", (0, -500)), ("up", (0, 500))])
+def test_find_spatial_target_wraps_vertically(direction, at):
+    nav = _make_nav()
+    current = _make_window("kitty", "0x1", 0, 0, 100, 100)
+    other = _make_window("kitty", "0x2", at[0], at[1], 100, 100)
+
+    found = nav._find_spatial_target(
+        [current, other], nav._window_bounds(current), nav._window_center(current), direction
+    )
+
+    assert found is other
+
+
+def test_snapshot_tiled_windows_reports_an_ipc_failure():
+    ipc = MagicMock()
+    ipc.send.side_effect = ConnectionError("gone")
+    nav = _make_nav(ipc)
+
+    assert nav._snapshot_tiled_windows(1) is None
+
+
+def test_snapshot_floating_geos_reports_an_ipc_failure():
+    ipc = MagicMock()
+    ipc.send.side_effect = ConnectionError("gone")
+    nav = _make_nav(ipc)
+
+    assert nav._snapshot_floating_geos(1) is None
+
+
+def test_apply_floating_geos_reports_a_client_query_failure():
+    ipc = MagicMock()
+    ipc.send.side_effect = ConnectionError("gone")
+    nav = _make_nav(ipc)
+
+    assert nav._apply_floating_geos(1, {"0x1": {"at": [0, 0], "size": [10, 10]}}) is False
+
+
+def test_apply_floating_geos_reports_a_lua_failure():
+    ipc = MagicMock()
+    ipc.send.return_value = json.dumps(
+        [{"address": "0x1", "floating": True, "workspace": {"id": 1}}]
+    )
+    ipc.eval_lua.side_effect = RuntimeError("nope")
+    nav = _make_nav(ipc)
+
+    assert nav._apply_floating_geos(1, {"0x1": {"at": [0, 0], "size": [10, 10]}}) is False
+
+
+def test_set_snapshot_floating_reports_a_lua_failure():
+    ipc = MagicMock()
+    ipc.eval_lua.side_effect = RuntimeError("nope")
+    nav = _make_nav(ipc)
+
+    ok = nav._set_snapshot_floating(1, {"0x1": {"at": [0, 0], "size": [10, 10]}}, floating=True)
+
+    assert ok is False
