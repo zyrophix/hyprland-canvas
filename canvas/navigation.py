@@ -728,6 +728,30 @@ class Navigator:
             debug.dbg2("SPAWN_RULES_DROP", count=len(names), names=names)
         return names
 
+    def rearm_spawn_rules(self) -> None:
+        """Register a rule for every workspace that is in canvas mode.
+
+        Idempotent by construction: `hyprctl reload` runs
+        `ruleEngine()->clearAllRules()` and clears the compositor's map of named
+        rules, so a rule the daemon still believes in is gone and its name is
+        forgotten. Nothing reports that, which is why this runs on a timer. While
+        the rule is still live the name is known, and `hl.window_rule` reuses the
+        existing rule instead of adding a second one.
+        """
+        if not self._auto_float or not self._canvas_mode_workspaces:
+            return
+        workareas = spawnrules.resolve_workareas(self._ipc)
+        for ws_id in sorted(self._canvas_mode_workspaces):
+            workarea = workareas.get(ws_id)
+            if workarea is None:
+                log.warning("spawn rules: no workarea for workspace %s", ws_id)
+                continue
+            try:
+                built = spawnrules.build_rules(self._spawn_cfg, ws_id, workarea)
+                self._spawn_rules[ws_id] = spawnrules.register(built, self._ipc)
+            except spawnrules.SpawnRuleError as e:
+                log.warning("spawn rules for workspace %s failed: %s", ws_id, e)
+
     def rehydrate_spawn_rules(self) -> None:
         """Re-arm spawn rules after a daemon restart.
 
@@ -747,18 +771,7 @@ class Navigator:
                     stale,
                 )
 
-        if self._auto_float:
-            workareas = spawnrules.resolve_workareas(self._ipc)
-            for ws_id in sorted(self._canvas_mode_workspaces):
-                workarea = workareas.get(ws_id)
-                if workarea is None:
-                    log.warning("spawn rules: no workarea for workspace %s", ws_id)
-                    continue
-                try:
-                    built = spawnrules.build_rules(self._spawn_cfg, ws_id, workarea)
-                    self._spawn_rules[ws_id] = spawnrules.register(built, self._ipc)
-                except spawnrules.SpawnRuleError as e:
-                    log.warning("spawn rules for workspace %s failed: %s", ws_id, e)
+        self.rearm_spawn_rules()
 
         try:
             self._persist_canvas_state(self._canvas_mode_workspaces, self._floating_geos)

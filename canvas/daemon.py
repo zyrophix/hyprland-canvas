@@ -32,6 +32,11 @@ class DaemonState:
     Makes state testable via dependency injection (mock HyprIPC, etc).
     """
 
+    # How often the spawn rules are re-registered, in seconds. Only matters
+    # between a `hyprctl reload` and the next window map; see
+    # rearm_spawn_rules_if_due.
+    _SPAWN_REARM_INTERVAL = 5.0
+
     def __init__(
         self,
         panning: PanningState,
@@ -54,6 +59,10 @@ class DaemonState:
         # Serializes compositor mutations from the IPC thread with main-loop
         # pan/edge moves. State objects retain their own fine-grained locks.
         self._operation_lock = threading.RLock()
+        # `hyprctl reload` wipes the compositor's rule engine and forgets the
+        # registered names, without telling anyone. The spawn rules are therefore
+        # re-registered on a timer.
+        self._last_spawn_rearm = time.monotonic()
 
     def apply_config(self, cfg: dict[str, Any]) -> None:
         """Push config values onto the live state objects.
@@ -449,6 +458,21 @@ class DaemonState:
         log.info("reloaded config from %s", source or "built-in defaults")
         return f"OK: reloaded ({source})" if source else "OK: reloaded (built-in defaults)"
 
+    def rearm_spawn_rules_if_due(self) -> bool:
+        """Re-register the spawn rules once the re-arm interval has elapsed.
+
+        A timer rather than a hook: the compositor's own reload clears the rule
+        engine and its name table without emitting anything the daemon can act
+        on, so there is nothing to listen for. Cheap when idle — with no
+        workspace in canvas mode the call returns before any IPC.
+        """
+        now = time.monotonic()
+        if now - self._last_spawn_rearm < self._SPAWN_REARM_INTERVAL:
+            return False
+        self._last_spawn_rearm = now
+        self.navigator.rearm_spawn_rules()
+        return True
+
     def handle_idle_pan_stop(self) -> bool:
         """Auto-stop panning after cursor idle; drop baselines.
 
@@ -664,6 +688,7 @@ def run() -> None:
         while not stop_event.is_set():
             with daemon_state._operation_lock:
                 daemon_state.handle_idle_pan_stop()
+                daemon_state.rearm_spawn_rules_if_due()
 
                 if not state.pan_active:
                     prev_total = (0, 0)

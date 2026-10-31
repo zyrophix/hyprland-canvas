@@ -13,8 +13,10 @@ import pytest
 
 from canvas import toggle_state
 from canvas.config import DEFAULT_CONFIG, ConfigError, _deep_merge, load, validate
+from canvas.daemon import DaemonState
 from canvas.ipc import _MY_UID, _ensure_private_dir, runtime_dir, send_command
 from canvas.navigation import FSMODE_FULLSCREEN, Navigator, fullscreen_state
+from canvas.panning import EdgeScrollState, PanningState
 from canvas.spawnrules import build_rules
 
 
@@ -353,3 +355,82 @@ def test_the_bundled_template_ships_auto_float_on():
     cfg = load("/nonexistent/path/config.yml", skip_user=True)
 
     assert cfg["canvas"]["auto_float"] is True
+
+
+# --- re-registering the rules after the compositor reloads -----------------
+#
+# `hyprctl reload` runs ruleEngine()->clearAllRules() and clears the map of
+# named rules, so a rule the daemon still believes in is gone and nothing
+# reports it. Hence a timer.
+
+
+def _rearm_nav(ipc: MagicMock, **kwargs: object) -> Navigator:
+    nav = _make_nav(ipc, spawn_cfg={"center": True, "default": "50%x60%"}, **kwargs)
+    nav._canvas_mode_workspaces = {1: {}, 2: {}}
+    return nav
+
+
+def _monitor_ipc() -> MagicMock:
+    ipc = MagicMock()
+    ipc.eval_lua.return_value = "ok"
+    ipc.send.side_effect = lambda cmd: (
+        json.dumps([{"id": 0, "x": 0, "y": 0, "width": 1920, "height": 1080}])
+        if cmd == "j/monitors"
+        else json.dumps([{"id": 1, "monitorID": 0}, {"id": 2, "monitorID": 0}])
+    )
+    return ipc
+
+
+def test_rearm_registers_a_rule_for_every_canvas_workspace():
+    ipc = _monitor_ipc()
+    nav = _rearm_nav(ipc, auto_float=True)
+
+    nav.rearm_spawn_rules()
+
+    assert nav._spawn_rules == {
+        1: ["canvas-spawn-ws1-default"],
+        2: ["canvas-spawn-ws2-default"],
+    }
+
+
+def test_rearm_does_nothing_with_auto_float_off():
+    ipc = _monitor_ipc()
+    nav = _rearm_nav(ipc, auto_float=False)
+
+    nav.rearm_spawn_rules()
+
+    ipc.send.assert_not_called()
+    ipc.eval_lua.assert_not_called()
+    assert nav._spawn_rules == {}
+
+
+def test_rearm_does_nothing_with_no_canvas_workspace():
+    """The idle case has to cost nothing: this runs on the 60Hz loop."""
+    ipc = _monitor_ipc()
+    nav = _make_nav(ipc, auto_float=True, spawn_cfg={"center": True, "default": "50%x60%"})
+
+    nav.rearm_spawn_rules()
+
+    ipc.send.assert_not_called()
+
+
+def test_rearm_runs_once_per_interval():
+    navigator = MagicMock()
+    ds = DaemonState(
+        panning=PanningState(),
+        edge_scroll=EdgeScrollState(),
+        navigator=navigator,
+        ipc=MagicMock(),
+    )
+
+    # The constructor stamps the timer, so the first call is not due.
+    assert ds.rearm_spawn_rules_if_due() is False
+    navigator.rearm_spawn_rules.assert_not_called()
+
+    ds._last_spawn_rearm = 0.0
+    assert ds.rearm_spawn_rules_if_due() is True
+    navigator.rearm_spawn_rules.assert_called_once()
+
+    # And the stamp it just took holds the next call off.
+    assert ds.rearm_spawn_rules_if_due() is False
+    assert navigator.rearm_spawn_rules.call_count == 1
