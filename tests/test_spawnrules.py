@@ -387,3 +387,27 @@ def test_disable_escapes_a_plain_name_without_changing_it():
     ipc = _ipc({})
     spawnrules.disable(["canvas-spawn-ws4-default"], ipc)
     assert 'name = "canvas-spawn-ws4-default"' in ipc.eval_lua.call_args[0][0]
+
+
+def test_resolve_workareas_skips_entries_it_cannot_read():
+    """A monitor without geometry, and a reserved area that will not parse."""
+    ipc = _ipc(
+        {
+            "j/monitors": json.dumps(
+                [
+                    {"id": 0},
+                    {
+                        "id": 1,
+                        "x": 0,
+                        "y": 0,
+                        "width": 1920,
+                        "height": 1080,
+                        "reserved": ["x", "y"],
+                    },
+                ]
+            ),
+            "j/workspaces": json.dumps([{"monitorID": 0}, {"id": 5, "monitorID": 1}]),
+        }
+    )
+
+    assert resolve_workareas(ipc) == {5: (0, 0, 1920, 1080)}

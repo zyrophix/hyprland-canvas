@@ -181,3 +181,48 @@ def test_daemon_main_help_and_rejects_positional(capsys):
     ):
         daemon_main()
         mock_run.assert_not_called()
+
+
+def test_version_falls_back_to_the_package_attribute(capsys):
+    """Without installed metadata there is nothing to read a version from, and
+    --version would print nothing at all."""
+    from importlib.metadata import PackageNotFoundError
+
+    from canvas import __version__
+
+    with (
+        patch.object(sys, "argv", ["canvas-ctl", "--version"]),
+        patch("importlib.metadata.version", side_effect=PackageNotFoundError),
+    ):
+        try:
+            ctl_main()
+            raise AssertionError("should have exited")
+        except SystemExit as e:
+            assert e.code == 0
+
+    assert __version__ in capsys.readouterr().out
+
+
+def test_daemon_main_reports_an_invalid_configuration(capsys):
+    from canvas.config import ConfigError
+
+    with patch("canvas.daemon.run", side_effect=ConfigError("speed must be a number")):
+        try:
+            daemon_main([])
+            raise AssertionError("should have exited")
+        except SystemExit as e:
+            assert e.code == 1
+
+    assert "speed must be a number" in capsys.readouterr().err
+
+
+def test_daemon_main_reports_an_unusable_runtime_directory(capsys):
+    """Another local user owning /tmp/user/<uid> must stop the daemon, loudly."""
+    with patch("canvas.daemon.run", side_effect=RuntimeError("owned by uid 0")):
+        try:
+            daemon_main([])
+            raise AssertionError("should have exited")
+        except SystemExit as e:
+            assert e.code == 1
+
+    assert "owned by uid 0" in capsys.readouterr().err

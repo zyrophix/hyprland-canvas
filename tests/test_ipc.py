@@ -1,6 +1,8 @@
+import os
 import socket
 import threading
 import time
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -186,3 +188,76 @@ def test_send_command_connection_reset_returns_error(tmp_path):
     server.stop()
     thread.join(timeout=2)
     assert result == ""
+
+
+def test_serve_unlinks_a_leftover_socket_file(tmp_path):
+    sock_path = tmp_path / "stale.sock"
+    sock_path.write_text("not a socket")
+    server = IpcServer(str(sock_path))
+    server.stop()
+
+    server.serve()
+
+    assert not sock_path.exists()
+
+
+def test_get_peer_uid_returns_none_when_unsupported():
+    from canvas.ipc import _get_peer_uid
+
+    conn = MagicMock()
+    conn.getsockopt.side_effect = OSError("no SO_PEERCRED here")
+
+    assert _get_peer_uid(conn) is None
+
+
+def test_server_rejects_a_peer_from_another_uid(tmp_path):
+    """SO_PEERCRED is what keeps another user off the control socket."""
+    sock_path = str(tmp_path / "peer.sock")
+    handled = []
+    server = IpcServer(sock_path, lambda cmd: handled.append(cmd) or "OK")
+
+    server_thread = threading.Thread(target=server.serve, daemon=True)
+    with patch("canvas.ipc._get_peer_uid", return_value=os.getuid() + 1):
+        server_thread.start()
+        time.sleep(0.1)
+
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.connect(sock_path)
+        client.sendall(b"PING")
+        try:
+            answered = client.recv(64)
+        except ConnectionResetError:
+            # Closing with unread data resets the connection instead of EOF;
+            # either way the point is that no reply arrives.
+            answered = b""
+        assert answered == b""
+        client.close()
+
+        server.stop()
+        server_thread.join(timeout=2)
+
+    assert handled == []
+
+
+def test_send_command_reports_a_refused_connection():
+    with patch("canvas.ipc.socket.socket") as make:
+        make.return_value.connect.side_effect = ConnectionRefusedError
+        assert send_command("PING", sock_path="/tmp/x") == "ERROR: daemon not running"
+
+
+def test_send_command_reports_a_missing_socket_file():
+    with patch("canvas.ipc.socket.socket") as make:
+        make.return_value.connect.side_effect = FileNotFoundError
+        assert send_command("PING", sock_path="/tmp/x").startswith("ERROR: socket not found")
+
+
+def test_send_command_reports_an_oversized_response():
+    with patch("canvas.ipc.socket.socket") as make:
+        make.return_value.recv.return_value = b"x" * (70 * 1024)
+        assert send_command("PING", sock_path="/tmp/x") == "ERROR: daemon response too large"
+
+
+def test_send_command_reports_an_os_error():
+    with patch("canvas.ipc.socket.socket") as make:
+        make.return_value.connect.side_effect = OSError("boom")
+        assert send_command("PING", sock_path="/tmp/x") == "ERROR: boom"

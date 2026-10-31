@@ -1,5 +1,6 @@
 import os
 import tempfile
+from unittest.mock import patch
 
 import pytest
 
@@ -370,3 +371,37 @@ def test_bundled_config_template_is_valid():
     assert validate(cfg) == []
     # The exact key set, so a silently added setting is caught here.
     assert cfg["canvas"]["spawn"] == {"center": True, "default": "50%x60%"}
+
+
+def test_validate_rejects_bad_edge_scroll_values():
+    problems = validate({"edge_scroll": {"speed": 0, "max_speed": -1, "enabled": "yes"}})
+
+    assert any("edge_scroll.speed" in p for p in problems)
+    assert any("edge_scroll.max_speed" in p for p in problems)
+    assert any("edge_scroll.enabled" in p for p in problems)
+
+
+def test_validate_rejects_non_bool_preserve_geometry_and_spawn_center():
+    problems = validate(
+        _cfg(preserve_geometry="yes", spawn={"center": "yes", "default": "50%x60%"})
+    )
+
+    assert any("preserve_geometry" in p for p in problems)
+    assert any("canvas.spawn.center" in p for p in problems)
+
+
+def test_load_treats_an_empty_file_as_defaults(tmp_path):
+    path = tmp_path / "config.yml"
+    path.write_text("")
+
+    cfg = load(str(path), skip_user=True)
+
+    assert cfg["canvas"]["spawn"]["default"] == "50%x60%"
+
+
+def test_load_without_any_candidate_uses_the_built_ins():
+    """No explicit path, no user file, no bundled template: the defaults."""
+    with patch("canvas.config._candidates", return_value=[]):
+        cfg = load(skip_user=True)
+
+    assert cfg["canvas"]["spawn"]["default"] == "50%x60%"

@@ -63,3 +63,25 @@ def test_dbg_tuple_field_rendering(monkeypatch):
         debug.dbg("T", cursor=(10, 20))
 
     assert "cursor=(10, 20)" in mock_log.debug.call_args[0][0]
+
+
+def test_level_two_is_verbose(monkeypatch):
+    monkeypatch.setenv("CANVAS_DEBUG", "2")
+    debug.reset_for_tests()
+
+    debug.enable_from_env()
+
+    assert debug.level() == 2
+    debug.reset_for_tests()
+
+
+def test_dbg2_emits_only_at_the_verbose_level(monkeypatch):
+    monkeypatch.setenv("CANVAS_DEBUG", "2")
+    debug.reset_for_tests()
+    debug.enable_from_env()
+
+    with patch("canvas.debug.log") as log:
+        debug.dbg2("EVENT", a=1)
+
+    assert log.debug.call_count == 1
+    debug.reset_for_tests()

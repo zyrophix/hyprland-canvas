@@ -307,3 +307,40 @@ def test_socket_path_error_names_the_directory_it_searched(tmp_path, monkeypatch
     with pytest.raises(FileNotFoundError) as exc:
         _hypr_socket_path()
     assert str(tmp_path / "hypr") in str(exc.value)
+
+
+def test_connect_opens_a_socket_with_a_timeout():
+    ipc = HyprIPC("/tmp/x.sock")
+
+    with patch("canvas.hypr.socket.socket") as make:
+        sock = ipc._connect()
+
+    assert sock is make.return_value
+    make.return_value.settimeout.assert_called_once_with(2.0)
+    make.return_value.connect.assert_called_once_with("/tmp/x.sock")
+
+
+def test_active_window_geometry_returns_none_on_unusable_numbers():
+    """A malformed payload is not a reason to raise into the poller."""
+    import json as json_module
+
+    ipc = HyprIPC("/tmp/x.sock")
+    payload = json_module.dumps({"address": "0xabc", "at": ["x", 0], "size": [10, 10]})
+
+    with patch.object(ipc, "_connect") as connect:
+        connect.return_value.recv.side_effect = [payload.encode(), b""]
+        assert ipc.get_active_window_geometry() is None
+
+
+def test_the_default_client_is_built_once():
+    import canvas.hypr as hypr_module
+
+    with (
+        patch.object(hypr_module, "_default", None),
+        patch.object(hypr_module.HyprIPC, "from_env", return_value=MagicMock()) as make,
+    ):
+        first = hypr_module._get_default()
+        second = hypr_module._get_default()
+
+    assert first is second
+    make.assert_called_once()
