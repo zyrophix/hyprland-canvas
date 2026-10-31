@@ -6,8 +6,9 @@ when it is off the call returns before any formatting, so hot paths stay free.
 Three environment variables shape the output:
 
 - `CANVAS_DEBUG=1` — summary events, `2` — also the per-window ones.
-- `CANVAS_DEBUG_FILTER` — keep only events whose name contains this substring,
-  which is how the 10 Hz edge-scroll tick stays out of the way.
+- `CANVAS_DEBUG_FILTER` — keep only events whose name contains this substring
+  (case-insensitive), which is how the 10 Hz edge-scroll tick stays out of the
+  way.
 - `CANVAS_DEBUG_FORMAT=json` — one JSON object per line instead of the text form.
 
 Values are rendered rather than repr'd: tuples as `1,2,3,4`, booleans as
@@ -17,6 +18,7 @@ back with `ast.literal_eval`.
 
 import json
 import logging
+import math
 import os
 import time
 from typing import Any
@@ -28,6 +30,7 @@ _start = 0.0
 _filter = ""
 _json = False
 _configured = False
+_handler: logging.Handler | None = None
 
 
 def enabled() -> bool:
@@ -45,13 +48,13 @@ def configure() -> None:
     for warnings and wrong for the trace: every line would begin with
     `canvas.debug: `, while the documented line starts with the timestamp.
     """
-    global _configured
+    global _configured, _handler
     if _configured:
         return
     _configured = True
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    log.addHandler(handler)
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(message)s"))
+    log.addHandler(_handler)
     log.propagate = False
 
 
@@ -65,19 +68,23 @@ def enable_from_env() -> None:
         _level = 2
     else:
         _level = 1
-    _filter = os.environ.get("CANVAS_DEBUG_FILTER", "")
+    _filter = os.environ.get("CANVAS_DEBUG_FILTER", "").upper()
     _json = os.environ.get("CANVAS_DEBUG_FORMAT", "").lower() == "json"
     if _level:
         _start = time.monotonic()
-        log.debug("tracing enabled level=%d", _level)
 
 
 def reset_for_tests() -> None:
-    global _level, _start, _filter, _json
+    global _level, _start, _filter, _json, _configured, _handler
     _level = 0
     _start = 0.0
     _filter = ""
     _json = False
+    if _handler is not None:
+        log.removeHandler(_handler)
+        _handler = None
+    _configured = False
+    log.propagate = True
 
 
 def _render(value: object) -> str:
@@ -89,8 +96,13 @@ def _render(value: object) -> str:
     if isinstance(value, (int, float)):
         return str(value)
     if isinstance(value, str):
-        # A space would split the key=value pair in two.
-        return json.dumps(value) if not value or any(c.isspace() for c in value) else value
+        # A space would split the key=value pair in two; keep non-ASCII as-is,
+        # because a window title is worth reading and not worth escaping.
+        return (
+            json.dumps(value, ensure_ascii=False)
+            if not value or any(c.isspace() for c in value)
+            else value
+        )
     if isinstance(value, dict):
         return "{" + ",".join(f"{k}:{_render(v)}" for k, v in value.items()) + "}"
     if isinstance(value, (list, tuple, set)):
@@ -100,6 +112,10 @@ def _render(value: object) -> str:
 
 def _jsonable(value: object) -> Any:
     """The same values, but keeping JSON's own types where they exist."""
+    if isinstance(value, float) and not math.isfinite(value):
+        # `json.dumps` writes NaN/Infinity, which are not valid JSON, so a
+        # consumer like jq would choke on the line.
+        return str(value)
     if isinstance(value, dict):
         return {str(k): _jsonable(v) for k, v in value.items()}
     if isinstance(value, (list, tuple, set)):
@@ -117,7 +133,7 @@ def _emit(event: str, fields: dict[str, object]) -> None:
         payload = {"ts": round(elapsed, 3), "event": event, "fields": _jsonable(fields)}
         log.debug(json.dumps(payload, sort_keys=False))
         return
-    parts = [f"{elapsed:8.3f}", event]
+    parts = [f"{elapsed:.3f}", event]
     parts.extend(f"{key}={_render(value)}" for key, value in fields.items())
     log.debug(" ".join(parts))
 

@@ -14,9 +14,10 @@ written the way the daemon holds them rather than as Python literals —
 quoted, so it stays one field.
 
 Two more variables shape the output. `CANVAS_DEBUG_FILTER=EDGE` keeps only events
-whose name contains the substring, which is usually what you want: the
-edge-scroll tick alone is ten lines a second. `CANVAS_DEBUG_FORMAT=json` switches
-to one JSON object per line, with `ts`, `event` and `fields`.
+whose name contains the substring, ignoring case, which is usually what you
+want: the edge-scroll tick alone is ten lines a second.
+`CANVAS_DEBUG_FORMAT=json` switches to one JSON object per line, with `ts`,
+`event` and `fields`.
 
 `CANVAS_DEBUG=1` emits only these eight:
 

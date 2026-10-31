@@ -157,23 +157,76 @@ def test_configure_formats_without_the_logger_name():
     stay a bare timestamp, which is the documented shape."""
     import logging as logging_module
 
-    saved_handlers = list(debug.log.handlers)
-    saved_propagate = debug.log.propagate
-    saved_configured = debug._configured  # type: ignore[attr-defined]
-    try:
-        debug.log.handlers = []
-        debug.log.propagate = True
-        debug._configured = False  # type: ignore[attr-defined]
-        debug.configure()
-        debug.configure()  # idempotent
+    debug.configure()
+    debug.configure()  # idempotent
 
-        assert debug.log.propagate is False
-        assert len(debug.log.handlers) == 1
-        record = logging_module.LogRecord(
-            "canvas.debug", logging_module.DEBUG, "", 0, "0.1 EVENT", None, None
-        )
-        assert debug.log.handlers[0].format(record) == "0.1 EVENT"
-    finally:
-        debug.log.handlers = saved_handlers
-        debug.log.propagate = saved_propagate
-        debug._configured = saved_configured  # type: ignore[attr-defined]
+    assert debug.log.propagate is False
+    assert len(debug.log.handlers) == 1
+    record = logging_module.LogRecord(
+        "canvas.debug", logging_module.DEBUG, "", 0, "0.1 EVENT", None, None
+    )
+    assert debug.log.handlers[0].format(record) == "0.1 EVENT"
+
+
+def test_reset_for_tests_undoes_configure():
+    """Otherwise the handler outlives the test that added it, and a later
+    caplog test would stop seeing this logger with no visible cause."""
+    debug.configure()
+
+    debug.reset_for_tests()
+
+    assert debug._handler is None  # type: ignore[attr-defined]
+    assert debug.log.propagate is True
+    assert debug.log.handlers == []
+
+
+def test_the_filter_is_case_insensitive(monkeypatch):
+    monkeypatch.setenv("CANVAS_DEBUG", "1")
+    monkeypatch.setenv("CANVAS_DEBUG_FILTER", "edge")
+    debug.enable_from_env()
+
+    with patch("canvas.debug.log") as mock_log:
+        debug.dbg("EDGE_DISARM")
+        debug.dbg("PAN_STOP")
+
+    assert mock_log.debug.call_count == 1
+    assert "EDGE_DISARM" in mock_log.debug.call_args[0][0]
+
+
+def test_a_line_starts_with_the_timestamp(monkeypatch):
+    """The documented shape is `<seconds> EVENT`, with nothing in front."""
+    monkeypatch.setenv("CANVAS_DEBUG", "1")
+    debug.enable_from_env()
+
+    with patch("canvas.debug.log") as mock_log:
+        debug.dbg("T")
+
+    line = mock_log.debug.call_args[0][0]
+    assert not line.startswith(" ")
+    float(line.split()[0])
+
+
+def test_non_ascii_in_a_field_is_not_escaped(monkeypatch):
+    """A window title stays readable instead of turning into \\u escapes."""
+    monkeypatch.setenv("CANVAS_DEBUG", "1")
+    debug.enable_from_env()
+
+    with patch("canvas.debug.log") as mock_log:
+        debug.dbg("T", title="Some page — here")
+
+    assert "—" in mock_log.debug.call_args[0][0]
+
+
+def test_json_mode_never_writes_non_json_numbers(monkeypatch):
+    import json as json_module
+
+    monkeypatch.setenv("CANVAS_DEBUG", "1")
+    monkeypatch.setenv("CANVAS_DEBUG_FORMAT", "json")
+    debug.enable_from_env()
+
+    with patch("canvas.debug.log") as mock_log:
+        debug.dbg("T", speed=float("nan"))
+
+    # NaN would be invalid JSON and break jq on the line.
+    payload = json_module.loads(mock_log.debug.call_args[0][0])
+    assert payload["fields"]["speed"] == "nan"
