@@ -126,7 +126,9 @@ def _drive(
         enter(patch("canvas.daemon.threading.Event", return_value=stop))
         enter(patch("canvas.daemon.threading.Thread", side_effect=make_thread))
         set_signal = enter(patch("canvas.daemon.signal.signal"))
-        enter(patch("canvas.daemon.load", return_value=copy.deepcopy(DEFAULT_CONFIG)))
+        source = "/etc/canvas/config.yml"
+        enter(patch("canvas.daemon.resolve_path", return_value=source))
+        load = enter(patch("canvas.daemon.load", return_value=copy.deepcopy(DEFAULT_CONFIG)))
         enter(patch("canvas.daemon.HyprIPC.from_env", return_value=MagicMock()))
         enter(patch("canvas.daemon.PanningState", return_value=panning))
         enter(patch("canvas.daemon.EdgeScrollState", return_value=edge_scroll))
@@ -149,12 +151,16 @@ def _drive(
         )
         edge_move = enter(patch.object(DaemonState, "edge_scroll_move"))
         restore = enter(patch.object(DaemonState, "restore_baselines"))
+        apply_config = enter(patch.object(DaemonState, "apply_config"))
 
         handle = SimpleNamespace(
             move=move,
             edge_move=edge_move,
             restore=restore,
             dbg=dbg,
+            load=load,
+            apply_config=apply_config,
+            source=source,
             stop=stop,
             ipc_server=ipc_server,
             ipc_thread=ipc_thread,
@@ -282,3 +288,12 @@ def test_run_keeps_going_when_a_move_fails(caplog):
 
     assert handle.exit is None
     assert any("window move failed" in r.getMessage() for r in caplog.records)
+
+
+def test_run_reads_and_records_the_resolved_config_file():
+    """`status` names the file the config came from, which means the boot path
+    has to hand the resolved path to both `load` and `apply_config`."""
+    handle = _drive(_FakePanning([False], []), _FakeEdgeScroll([False], []))
+
+    handle.load.assert_called_once_with(handle.source)
+    assert handle.apply_config.call_args.args[1] == handle.source

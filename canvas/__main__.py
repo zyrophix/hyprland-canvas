@@ -8,22 +8,11 @@ Entry points (see pyproject.toml [project.scripts]):
 import argparse
 import sys
 
-
-def _version() -> str:
-    """Single source of truth: installed metadata, fallback to package attr."""
-    try:
-        from importlib.metadata import PackageNotFoundError, version
-
-        return version("hyprland-canvas")
-    except PackageNotFoundError:
-        from canvas import __version__
-
-        return __version__
-
+from canvas import version
 
 _COMMANDS: tuple[tuple[str, str], ...] = (
     ("ping", "check if daemon is running"),
-    ("status", "show pan direction and state"),
+    ("status", "show daemon state (--json for one object)"),
     ("pan-start", "start panning (called by mouse bind)"),
     ("pan-stop", "stop panning (called by mouse release bind)"),
     ("nav-left", "navigate to nearest window left"),
@@ -47,7 +36,7 @@ def daemon_main(argv: list[str] | None = None) -> None:
         prog="canvasd",
         description="Hyprland infinite-canvas panning daemon.",
     )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {_version()}")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {version()}")
     parser.parse_args(argv)
     from canvas.config import ConfigError
     from canvas.daemon import run
@@ -64,10 +53,10 @@ def daemon_main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
 
-def _send(cmd: str) -> None:
+def _send(cmd: str, as_json: bool = False) -> None:
     from canvas.ipc import send_command
 
-    response = send_command(cmd)
+    response = send_command(f"{cmd}_JSON" if as_json else cmd)
     # UNKNOWN means the daemon is too old to know the command. It is a failure
     # like any other: exiting 0 there would tell a script that a newer CLI's
     # command had been accepted by an older daemon that never ran it.
@@ -84,14 +73,15 @@ def ctl_main(argv: list[str] | None = None) -> None:
         prog="canvas-ctl",
         description="Send commands to the canvas daemon.",
     )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {_version()}")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {version()}")
     sub = parser.add_subparsers(dest="command", metavar="<command>", required=True)
     for name, help_text in _COMMANDS:
-        sub.add_parser(name, help=help_text).set_defaults(
-            func=_send, cmd=name.upper().replace("-", "_")
-        )
+        child = sub.add_parser(name, help=help_text)
+        child.set_defaults(func=_send, cmd=name.upper().replace("-", "_"))
+        if name == "status":
+            child.add_argument("--json", action="store_true", help="one JSON object")
     args = parser.parse_args(argv)
-    args.func(args.cmd)
+    args.func(args.cmd, as_json=getattr(args, "json", False))
 
 
 if __name__ == "__main__":

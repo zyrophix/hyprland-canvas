@@ -226,3 +226,32 @@ def test_daemon_main_reports_an_unusable_runtime_directory(capsys):
             assert e.code == 1
 
     assert "owned by uid 0" in capsys.readouterr().err
+
+
+def test_ctl_main_status_sends_the_plain_command():
+    with (
+        patch.object(sys, "argv", ["canvas-ctl", "status"]),
+        patch("canvas.ipc.send_command", return_value="version 1.6.0") as mock_send,
+    ):
+        ctl_main()
+
+    mock_send.assert_called_with("STATUS")
+
+
+def test_ctl_main_status_json_asks_the_daemon_for_json():
+    with (
+        patch.object(sys, "argv", ["canvas-ctl", "status", "--json"]),
+        patch("canvas.ipc.send_command", return_value="{}") as mock_send,
+    ):
+        ctl_main()
+
+    mock_send.assert_called_with("STATUS_JSON")
+
+
+def test_ctl_main_rejects_json_where_it_has_no_meaning():
+    with patch.object(sys, "argv", ["canvas-ctl", "ping", "--json"]):
+        try:
+            ctl_main()
+            raise AssertionError("should have exited")
+        except SystemExit as e:
+            assert e.code == 2

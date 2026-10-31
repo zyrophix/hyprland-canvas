@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import re
 import signal
 import threading
@@ -9,7 +10,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from canvas import debug
+from canvas import debug, version
 from canvas.config import ConfigError, load, resolve_path
 from canvas.hypr import LUA_DISPATCH_HELPER, HyprIPC, get_cursor_pos
 from canvas.ipc import IpcServer, acquire_singleton
@@ -49,6 +50,9 @@ class DaemonState:
         self.navigator = navigator
         self.ipc = ipc
         self.baselines: dict[str, tuple[int, int]] = {}
+        # The file the running config came from; shown by `status` so a user
+        # editing a different copy can see why nothing changed.
+        self.config_source: str | None = None
         # Workspace whose windows the baselines belong to; pan and
         # edge-scroll moves are scoped to it so other workspaces'
         # floating layouts stay untouched.
@@ -64,7 +68,7 @@ class DaemonState:
         # re-registered on a timer.
         self._last_spawn_rearm = time.monotonic()
 
-    def apply_config(self, cfg: dict[str, Any]) -> None:
+    def apply_config(self, cfg: dict[str, Any], source: str | None = None) -> None:
         """Push config values onto the live state objects.
 
         Single source of truth for the config-to-state mapping: runs once at
@@ -83,6 +87,9 @@ class DaemonState:
         the IPC handler does — costs nothing.
         """
         with self._operation_lock:
+            # The file the values came from, for `status`. Passed in rather than
+            # looked up, so a reload cannot report a path it did not read.
+            self.config_source = source
             self.panning.speed = cfg["speed"]
             self.panning.max_speed = cfg["max_speed"]
             self.panning.inverted = cfg["invert"]["enabled"]
@@ -161,6 +168,7 @@ class DaemonState:
         "CANVAS_TOGGLE_SINGLE": "_handle_canvas_toggle_single",
         "PING": "_handle_ping",
         "STATUS": "_handle_status",
+        "STATUS_JSON": "_handle_status_json",
         "RELOAD": "_handle_reload",
     }
 
@@ -423,10 +431,59 @@ class DaemonState:
     def _handle_ping(self) -> str:
         return "PONG"
 
+    def _status_data(self) -> dict[str, Any]:
+        """What the daemon knows about itself, gathered in one place.
+
+        Anything the compositor cannot answer stays `None` rather than failing
+        the whole command: a status report that refuses to print because one
+        query timed out is worse than one with a gap in it.
+        """
+        workspace_id = self._get_active_workspace_id()
+        floating = None
+        if workspace_id is not None:
+            floating = self.navigator.floating_count(workspace_id)
+        return {
+            "version": version(),
+            "pid": os.getpid(),
+            "config": self.config_source or "built-in defaults",
+            "inverted": self.panning.inverted,
+            "panning": self.panning.is_dragging,
+            "edge_scroll": self.edge_scroll.active,
+            "canvas_workspaces": self.navigator.canvas_workspaces(),
+            "workspace": workspace_id,
+            "floating": floating,
+            "spawn_rules": self.navigator.spawn_rule_names(),
+        }
+
+    @staticmethod
+    def _render_status(data: dict[str, Any]) -> str:
+        def state(value: bool, yes: str, no: str) -> str:
+            return yes if value else no
+
+        workspaces = ", ".join(str(ws) for ws in data["canvas_workspaces"]) or "none"
+        rules = ", ".join(data["spawn_rules"]) or "none"
+        floating = data["floating"]
+        workspace = data["workspace"]
+        return "\n".join(
+            [
+                f"version   {data['version']}",
+                f"pid       {data['pid']}",
+                f"config    {data['config']}",
+                f"pan       {state(data['inverted'], 'INVERTED', 'NORMAL')} "
+                f"{state(data['panning'], 'PANNING', 'IDLE')}",
+                f"edge      {state(data['edge_scroll'], 'SCROLLING', 'IDLE')}",
+                f"canvas    {workspaces}",
+                f"workspace {workspace if workspace is not None else 'unknown'}",
+                f"floating  {floating if floating is not None else 'unknown'}",
+                f"rules     {rules}",
+            ]
+        )
+
     def _handle_status(self) -> str:
-        inv = "INVERTED" if self.panning.inverted else "NORMAL"
-        pan = "PANNING" if self.panning.is_dragging else "IDLE"
-        return f"{inv} {pan}"
+        return self._render_status(self._status_data())
+
+    def _handle_status_json(self) -> str:
+        return json.dumps(self._status_data())
 
     def _handle_reload(self) -> str:
         """Re-read the config file and apply it to the running daemon.
@@ -437,10 +494,9 @@ class DaemonState:
         server logs handler exceptions at debug level and sends the client
         nothing, which would surface as a bare "empty response from daemon".
         """
-        # Resolving first and reading that exact path means the file named in
-        # the response is provably the one that was read. Letting `load` search
-        # and asking `resolve_path` afterwards would leave a window where the
-        # file changes in between and the two disagree.
+        # Resolve first and read that path, so the file named in the response is
+        # the one the daemon was pointed at. Asking `resolve_path` afterwards
+        # could name a different file than the one just read.
         source = resolve_path()
         try:
             cfg = load(source)
@@ -448,7 +504,7 @@ class DaemonState:
             log.warning("reload rejected: %s", e)
             return f"ERROR:CONFIG_INVALID: {e}"
 
-        self.apply_config(cfg)
+        self.apply_config(cfg, source)
         # Spawn rules live in the compositor, so a changed canvas.spawn or a
         # flipped auto_float only takes effect once they are re-armed. Costs a
         # few compositor round trips, which is why the response below is not
@@ -638,12 +694,11 @@ def run() -> None:
     # Trace lines are formatted without the logger name; warnings keep it.
     debug.configure()
     if debug.enabled():
-        import os
-
         debug.dbg("BOOT", pid=os.getpid())
 
     log.info("loading config...")
-    cfg = load()
+    source = resolve_path()
+    cfg = load(source)
 
     ipc = HyprIPC.from_env()
     state = PanningState()
@@ -654,7 +709,7 @@ def run() -> None:
         panning=state, edge_scroll=edge_scroll, navigator=navigator, ipc=ipc
     )
     # Same call `canvas-ctl reload` makes, so boot and reload cannot diverge.
-    daemon_state.apply_config(cfg)
+    daemon_state.apply_config(cfg, source)
 
     ipc_server = IpcServer(handler=daemon_state.handle_ipc)
 

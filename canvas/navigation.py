@@ -1245,6 +1245,19 @@ class Navigator:
             if isinstance(w.get("address"), str) and self.excluded(w)
         }
 
+    def canvas_workspaces(self) -> list[int]:
+        """Workspace ids currently in canvas mode."""
+        return sorted(self._canvas_mode_workspaces)
+
+    def spawn_rule_names(self) -> list[str]:
+        """Every spawn rule name the daemon believes is registered."""
+        return sorted({name for names in self._spawn_rules.values() for name in names})
+
+    def floating_count(self, workspace_id: int) -> int | None:
+        """Floating windows on one workspace, or None when the query fails."""
+        floating = self._get_floating_windows(workspace_id)
+        return None if floating is None else len(floating)
+
     def _is_protected(self, window: dict[str, Any]) -> bool:
         """Check if window class matches a protected app."""
         window_class = window.get("class", "").lower()

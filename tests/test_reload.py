@@ -292,3 +292,16 @@ def test_ctl_reload_sends_reload():
     ):
         ctl_main()
     mock_send.assert_called_with("RELOAD")
+
+
+def test_reload_then_status_names_the_file_it_read(tmp_path):
+    """`status` shows the file the running config came from, so a user editing
+    another copy can see why nothing changed."""
+    path = _write_config(tmp_path, FULL_CONFIG)
+    ds = _state()
+
+    with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(tmp_path)}):
+        ds.handle_ipc("RELOAD")
+
+    config_line = ds.handle_ipc("STATUS").splitlines()[2]
+    assert config_line == f"config    {path}"

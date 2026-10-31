@@ -94,7 +94,7 @@ PONG
 ```
 
 ```bash
-canvas-ctl status    # 3. show pan direction and state
+canvas-ctl status    # 3. show daemon state
 ```
 
 Then add the Hyprland keybinds from [Usage](#usage) and drag with SUPER+SHIFT+LMB.
@@ -175,9 +175,31 @@ The full list lives in the CLI itself — `canvas-ctl --help` is canonical:
 ```bash
 canvas-ctl --help  # all 16 commands with one-line descriptions
 canvas-ctl ping    # check if daemon is running
-canvas-ctl status  # show pan direction and state
+canvas-ctl status  # show daemon state
 canvas-ctl reload  # re-read the config file and apply it in place
 ```
+
+`status` prints the version and pid, which config file the daemon read, the pan
+and edge-scroll state, the workspaces in canvas mode with the number of floating
+windows on the active one, and the spawn rules it believes are registered. A
+value the compositor cannot answer reads `unknown` rather than failing the whole
+report:
+
+```text
+version   1.7.0
+pid       4711
+config    /home/u/.config/canvas/config.yml
+pan       INVERTED IDLE
+edge      IDLE
+canvas    3
+workspace 3
+floating  6
+rules     canvas-spawn-ws3-default
+```
+
+`canvas-ctl status --json` returns the same as one JSON object, for a status bar
+or a script. An older daemon replies `UNKNOWN`, which the command reports as a
+failure rather than an empty success.
 
 ### Configuration
 

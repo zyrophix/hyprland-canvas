@@ -82,13 +82,152 @@ def test_handle_ipc_ping():
     assert _make_daemon_state().handle_ipc("PING") == "PONG"
 
 
+def _status_fields(response: str) -> dict[str, str]:
+    """The two-column status report as a mapping, for asserting on one line."""
+    return {line.split(None, 1)[0]: line.split(None, 1)[1] for line in response.splitlines()}
+
+
+def _compositor_ipc(workspace_id: int = 1, clients: list[dict] | None = None) -> MagicMock:
+    """An IPC double that answers the two queries `status` makes."""
+    payload = json.dumps(clients or [])
+
+    def send(cmd: str) -> str:
+        return json.dumps({"id": workspace_id}) if cmd == "j/activeworkspace" else payload
+
+    ipc = MagicMock()
+    ipc.send.side_effect = send
+    return ipc
+
+
 def test_handle_ipc_status():
     ds = _make_daemon_state()
     ds.panning.inverted = True
-    assert ds.handle_ipc("STATUS") == "INVERTED IDLE"
+
+    fields = _status_fields(ds.handle_ipc("STATUS"))
+    assert fields["pan"] == "INVERTED IDLE"
+    assert fields["edge"] == "IDLE"
 
     ds.panning.start_pan()
-    assert ds.handle_ipc("STATUS") == "INVERTED PANNING"
+    fields = _status_fields(ds.handle_ipc("STATUS"))
+    assert fields["pan"] == "INVERTED PANNING"
+
+
+def test_handle_ipc_status_names_the_config_file_it_read():
+    ds = _make_daemon_state()
+    ds.config_source = "/home/u/.config/canvas/config.yml"
+
+    assert _status_fields(ds.handle_ipc("STATUS"))["config"] == ds.config_source
+
+
+def test_handle_ipc_status_says_unknown_rather_than_failing():
+    """A status report that refuses to print because one query timed out is
+    worse than one with a gap in it."""
+    ipc = MagicMock()
+    ipc.send.side_effect = TimeoutError("compositor busy")
+    ds = _make_daemon_state(ipc)
+
+    fields = _status_fields(ds.handle_ipc("STATUS"))
+
+    assert fields["config"] == "built-in defaults"
+    assert fields["canvas"] == "none"
+    assert fields["rules"] == "none"
+    assert fields["workspace"] == "unknown"
+    assert fields["floating"] == "unknown"
+
+
+def test_handle_ipc_status_prints_the_workspace_with_an_unknown_window_count():
+    """The two queries fail independently: a workspace id is useful on its own,
+    so a failed client query must not discard it."""
+    ipc = MagicMock()
+
+    def send(cmd: str) -> str:
+        if cmd == "j/activeworkspace":
+            return json.dumps({"id": 4})
+        raise TimeoutError("compositor busy")
+
+    ipc.send.side_effect = send
+    ds = _make_daemon_state(ipc)
+
+    fields = _status_fields(ds.handle_ipc("STATUS"))
+
+    assert fields["workspace"] == "4"
+    assert fields["floating"] == "unknown"
+
+
+def test_handle_ipc_status_keeps_a_fixed_field_order():
+    """The report is read column-wise, so the lines have a stable order."""
+    lines = _make_daemon_state().handle_ipc("STATUS").splitlines()
+
+    assert [line.split()[0] for line in lines] == [
+        "version",
+        "pid",
+        "config",
+        "pan",
+        "edge",
+        "canvas",
+        "workspace",
+        "floating",
+        "rules",
+    ]
+
+
+def test_handle_ipc_status_reads_the_compositor():
+    clients = [
+        {"floating": True, "workspace": {"id": 2}},
+        {"floating": True, "workspace": {"id": 3}},
+        {"floating": False, "workspace": {"id": 2}},
+    ]
+    ds = _make_daemon_state(_compositor_ipc(workspace_id=2, clients=clients))
+
+    fields = _status_fields(ds.handle_ipc("STATUS"))
+
+    assert fields["workspace"] == "2"
+    assert fields["floating"] == "1"
+
+
+def test_handle_ipc_status_lists_canvas_workspaces_and_rules():
+    ds = _make_daemon_state()
+    ds.navigator._canvas_mode_workspaces = {3: {}, 1: {}}
+    ds.navigator._spawn_rules = {
+        3: ["canvas-spawn-ws3-default", "canvas-spawn-ws1-default"],
+        1: ["canvas-spawn-ws1-default", "canvas-spawn-ws1-fixed"],
+    }
+
+    fields = _status_fields(ds.handle_ipc("STATUS"))
+
+    assert fields["canvas"] == "1, 3"
+    assert (
+        fields["rules"]
+        == "canvas-spawn-ws1-default, canvas-spawn-ws1-fixed, canvas-spawn-ws3-default"
+    )
+
+
+def test_handle_ipc_status_json_is_a_single_object():
+    import os
+
+    ds = _make_daemon_state()
+    ds.panning.inverted = True
+
+    response = ds.handle_ipc("STATUS_JSON")
+    payload = json.loads(response)
+
+    assert set(payload) == {
+        "version",
+        "pid",
+        "config",
+        "inverted",
+        "panning",
+        "edge_scroll",
+        "canvas_workspaces",
+        "workspace",
+        "floating",
+        "spawn_rules",
+    }
+    assert payload["inverted"] is True
+    assert payload["panning"] is False
+    assert payload["canvas_workspaces"] == []
+    assert payload["pid"] == os.getpid()
+    assert "\n" not in response
 
 
 def test_handle_ipc_unknown():
