@@ -9,7 +9,7 @@ from canvas.navigation import Navigator
 from canvas.spawnrules import SpawnRuleError
 
 WORKAREA = (0, 0, 1920, 1036)
-SPAWN_CFG = {"center": True, "default": "30%x40%", "rules": []}
+SPAWN_CFG = {"center": True, "default": "30%x40%"}
 
 
 def _window(addr, cls="kitty", ws=1, floating=False, x=0, y=0, w=100, h=100):

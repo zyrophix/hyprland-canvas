@@ -12,9 +12,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from canvas import toggle_state
-from canvas.config import DEFAULT_CONFIG, _deep_merge, validate
+from canvas.config import DEFAULT_CONFIG, ConfigError, _deep_merge, load, validate
 from canvas.ipc import _MY_UID, _ensure_private_dir, runtime_dir, send_command
 from canvas.navigation import FSMODE_FULLSCREEN, Navigator, fullscreen_state
+from canvas.spawnrules import build_rules
 
 
 def _make_nav(ipc: MagicMock | None = None, **kwargs: object) -> Navigator:
@@ -295,3 +296,43 @@ def test_validate_does_not_walk_into_lists():
     """protected_apps and window_pan_excludes hold strings, not mappings."""
     assert _validate(window_pan_excludes=["zoom", "slack"]) == []
     assert _validate(navigation={"protected_apps": ["firefox"]}) == []
+
+
+# --- canvas.spawn.rules was removed ---------------------------------------
+#
+# The generic "not a setting" message is technically true and practically
+# useless here: the reader is mid-upgrade with a config that stopped working,
+# and needs to be told what to do with the key.
+
+
+def test_validate_explains_the_removed_spawn_rules_key():
+    problems = _validate(canvas={"spawn": {"center": True, "default": "50%x60%", "rules": []}})
+
+    assert len(problems) == 1, problems
+    assert "canvas.spawn.rules" in problems[0]
+    assert "removed in 1.7.0" in problems[0]
+    assert "windowrule" in problems[0]
+
+
+def test_load_refuses_a_config_with_the_removed_key(tmp_path):
+    path = tmp_path / "config.yml"
+    path.write_text("canvas:\n  spawn:\n    rules: []\n")
+
+    with pytest.raises(ConfigError) as exc:
+        load(str(path), skip_user=True)
+
+    assert "canvas.spawn.rules" in str(exc.value)
+    assert str(path) in str(exc.value)
+
+
+def test_build_rules_no_longer_reads_a_rules_key():
+    """A leftover rules list must not add a second rule."""
+    cfg = {
+        "center": True,
+        "default": "50%x60%",
+        "rules": [{"match": {"class": "btop"}, "size": "910x930"}],
+    }
+
+    assert [name for name, _ in build_rules(cfg, 1, (0, 0, 1920, 1036))] == [
+        "canvas-spawn-ws1-default"
+    ]

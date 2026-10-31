@@ -30,31 +30,6 @@ RULE_PREFIX = "canvas-spawn-"
 # Workarea as (x, y, width, height) in layout coordinates.
 Workarea = tuple[int, int, int, int]
 
-# Mirror of Hyprland's matchPropFromString table. An unknown key is recorded
-# by the compositor as a config error instead of being raised, so it is
-# rejected here where we can still fail loudly.
-MATCH_KEYS = frozenset(
-    {
-        "class",
-        "content",
-        "exec",
-        "floating",
-        "focus",
-        "fullscreen",
-        "group",
-        "initial_class",
-        "initial_title",
-        "modal",
-        "namespace",
-        "pin",
-        "pid",
-        "title",
-        "workspace",
-        "xwayland",
-        "xdg_tag",
-    }
-)
-
 # "910x930" is pixels, "30%x40%" is a fraction of the workarea. The unit
 # follows each number, and the trailing backreference forces both to agree, so
 # a mixed spec like "910x40%" cannot be written.
@@ -88,15 +63,6 @@ class SpawnRuleError(RuntimeError):
 
 def default_rule_name(ws_id: int) -> str:
     return f"{RULE_PREFIX}ws{ws_id}-default"
-
-
-def override_rule_name(ws_id: int, index: int) -> str:
-    return f"{RULE_PREFIX}ws{ws_id}-override-{index}"
-
-
-def rule_names(ws_id: int, overrides: int) -> list[str]:
-    """Deterministic name set for one workspace, in registration order."""
-    return [default_rule_name(ws_id)] + [override_rule_name(ws_id, i) for i in range(overrides)]
 
 
 def size_spec_error(spec: object) -> str | None:
@@ -145,42 +111,19 @@ def parse_size(spec: str, workarea: Workarea) -> tuple[int, int]:
     return max(1, min(w, width)), max(1, min(h, height))
 
 
-def _lua_value(value: object) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        return repr(value)
-    if isinstance(value, str):
-        escaped = (
-            value.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-        )
-        return f'"{escaped}"'
-    raise SpawnRuleError(f"match value must be string, bool or number: {value!r}")
+def _lua_str(value: str) -> str:
+    """A Lua double-quoted string literal, escaped."""
+    escaped = (
+        value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
+    )
+    return f'"{escaped}"'
 
 
-def _match_table(match: object) -> str:
-    if not isinstance(match, dict) or not match:
-        raise SpawnRuleError("each spawn rule needs a non-empty 'match' mapping")
-    parts: list[str] = []
-    for key in sorted(match):
-        if key not in MATCH_KEYS:
-            raise SpawnRuleError(
-                f"unknown match property {key!r}; expected one of {', '.join(sorted(MATCH_KEYS))}"
-            )
-        parts.append(f"{key} = {_lua_value(match[key])}")
-    return "{ " + ", ".join(parts) + " }"
-
-
-def _rule_lua(name: str, match: object, spec: str, workarea: Workarea, center: bool) -> str:
+def _rule_lua(name: str, ws_id: int, spec: str, workarea: Workarea, center: bool) -> str:
     width, height = parse_size(spec, workarea)
     fields = [
-        f'name = "{name}"',
-        f"match = {_match_table(match)}",
+        f"name = {_lua_str(name)}",
+        f'match = {{ class = ".*", workspace = {ws_id} }}',
         f"size = {{ {width}, {height} }}",
         "float = true",
     ]
@@ -189,82 +132,36 @@ def _rule_lua(name: str, match: object, spec: str, workarea: Workarea, center: b
     return f"_canvas_spawn_reg{{ {', '.join(fields)} }}"
 
 
-def _scoped_match(match: dict[str, Any], ws_id: int, where: str) -> dict[str, Any]:
-    """Constrain a rule's match to the workspace it was registered for.
-
-    Every rule we register belongs to exactly one workspace — the name says
-    `ws<N>` and `disable` retracts it by that name. Without this constraint the
-    catch-all (`class = ".*"`) matched every window in every workspace, so
-    opening kitty on an ordinary workspace would still float and centre it.
-
-    A rule that names a different workspace cannot be satisfied by a rule the
-    daemon registered for this one, so that is an error rather than a silently
-    dead match.
-    """
-    scoped = dict(match)
-    declared = scoped.get("workspace")
-    if declared is not None and declared != ws_id:
-        raise SpawnRuleError(
-            f"{where}: match.workspace is {declared!r} but this rule is registered for "
-            f"workspace {ws_id}; drop the key to inherit the workspace it is listed under"
-        )
-    scoped["workspace"] = ws_id
-    return scoped
-
-
 def build_rules(
     spawn_cfg: dict[str, Any],
     ws_id: int,
     workarea: Workarea,
 ) -> list[tuple[str, str]]:
-    """Build (name, lua) pairs for one workspace, catch-all first.
+    """Build the (name, lua) pair for one workspace, as a one-element list.
 
-    The catch-all matches any class on that workspace; user overrides follow in
-    config order and win because the compositor applies matching rules in
-    registration order.
+    The rule matches every class but only on this workspace. The workspace
+    constraint is what keeps it from claiming windows on ordinary desktops:
+    without it a catch-all matched everywhere, so opening a terminal anywhere
+    floated and centred it.
+
+    Per-class sizes are deliberately absent. That is what a windowrule already
+    does, and it belongs in the user's Hyprland config where it composes with
+    the rest of their rules; this daemon registers one rule per workspace and
+    otherwise stays out of the way.
     """
-    center = bool(spawn_cfg.get("center", True))
-    rules: list[tuple[str, str]] = []
     name = default_rule_name(ws_id)
-    rules.append(
+    return [
         (
             name,
             _rule_lua(
                 name,
-                _scoped_match({"class": ".*"}, ws_id, "canvas.spawn.default"),
+                ws_id,
                 spawn_cfg.get("default", ""),
                 workarea,
-                center,
+                bool(spawn_cfg.get("center", True)),
             ),
         )
-    )
-
-    raw_rules = spawn_cfg.get("rules", [])
-    if not isinstance(raw_rules, list):
-        raise SpawnRuleError("canvas.spawn.rules must be a list")
-    for index, entry in enumerate(raw_rules):
-        if not isinstance(entry, dict):
-            raise SpawnRuleError(f"canvas.spawn.rules[{index}] must be a mapping")
-        name = override_rule_name(ws_id, index)
-        spec = entry.get("size")
-        if size_spec_error(spec):
-            raise SpawnRuleError(f"canvas.spawn.rules[{index}].size: {size_spec_error(spec)}")
-        match = entry.get("match")
-        if not isinstance(match, dict) or not match:
-            raise SpawnRuleError(f"canvas.spawn.rules[{index}].match must be a non-empty mapping")
-        rules.append(
-            (
-                name,
-                _rule_lua(
-                    name,
-                    _scoped_match(match, ws_id, f"canvas.spawn.rules[{index}]"),
-                    str(spec),
-                    workarea,
-                    center,
-                ),
-            )
-        )
-    return rules
+    ]
 
 
 def resolve_workareas(ipc: HyprIPC) -> dict[int, Workarea]:
@@ -344,9 +241,9 @@ def disable(names: list[str], ipc: HyprIPC) -> bool:
         return True
     # Names come from the state file, which is a hand-editable file, and the
     # whole batch is one eval: a name carrying a quote or a newline would abort
-    # the chunk and leave every real rule in the batch enabled. _lua_value is
+    # the chunk and leave every real rule in the batch enabled. _lua_str is
     # what every other interpolation on this path uses.
-    lines = [f"hl.window_rule{{ name = {_lua_value(name)}, enabled = false }}" for name in names]
+    lines = [f"hl.window_rule{{ name = {_lua_str(name)}, enabled = false }}" for name in names]
     try:
         ipc.eval_lua("\n".join(lines))
     except Exception as e:

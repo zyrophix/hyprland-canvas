@@ -345,9 +345,7 @@ def _cfg(**canvas):
 
 
 def test_validate_accepts_minimal_spawn():
-    problems = validate(
-        _cfg(auto_float=True, spawn={"center": True, "default": "30%x40%", "rules": []})
-    )
+    problems = validate(_cfg(auto_float=True, spawn={"center": True, "default": "30%x40%"}))
     assert not any("canvas" in p for p in problems)
 
 
@@ -362,96 +360,13 @@ def test_validate_rejects_non_mapping_spawn():
 
 
 def test_validate_rejects_bad_default_size():
-    problems = validate(_cfg(spawn={"center": True, "default": "big", "rules": []}))
+    problems = validate(_cfg(spawn={"center": True, "default": "big"}))
     assert any("canvas.spawn.default" in p for p in problems)
-
-
-def test_validate_rejects_null_rules_list():
-    """A bare "rules:" key in YAML parses as None and must be reported clearly."""
-    problems = validate(_cfg(spawn={"center": True, "default": "600x400", "rules": None}))
-    assert any("canvas.spawn.rules must be a list" in p for p in problems)
-
-
-def test_validate_rejects_non_mapping_rule_entry():
-    problems = validate(_cfg(spawn={"center": True, "default": "600x400", "rules": ["btop"]}))
-    assert any("rules[0] must be a mapping" in p for p in problems)
-
-
-def test_validate_rejects_empty_match():
-    problems = validate(
-        _cfg(spawn={"center": True, "default": "600x400", "rules": [{"match": {}, "size": "1x1"}]})
-    )
-    assert any("match must be a non-empty mapping" in p for p in problems)
-
-
-def test_validate_rejects_unknown_match_property():
-    problems = validate(
-        _cfg(
-            spawn={
-                "center": True,
-                "default": "600x400",
-                "rules": [{"match": {"klass": "btop"}, "size": "1x1"}],
-            }
-        )
-    )
-    assert any("unknown property" in p for p in problems)
-
-
-def test_validate_rejects_non_scalar_match_value():
-    problems = validate(
-        _cfg(
-            spawn={
-                "center": True,
-                "default": "600x400",
-                "rules": [{"match": {"class": ["a", "b"]}, "size": "1x1"}],
-            }
-        )
-    )
-    assert any("must be a string, bool or finite number" in p for p in problems)
-
-
-def test_validate_rejects_bad_rule_size():
-    problems = validate(
-        _cfg(
-            spawn={
-                "center": True,
-                "default": "600x400",
-                "rules": [{"match": {"class": "btop"}, "size": "910"}],
-            }
-        )
-    )
-    assert any("rules[0].size" in p for p in problems)
 
 
 def test_bundled_config_template_is_valid():
     """config.yml ships as a copy-paste template, so it must pass validation."""
     cfg = load("/nonexistent/path/config.yml", skip_user=True)
     assert validate(cfg) == []
-    assert cfg["canvas"]["spawn"]["rules"] == []
-
-
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_spawn_match_rejects_non_finite_numbers(value):
-    """nan and inf are not Lua literals.
-
-    repr(nan) is `nan`, which in Lua is a read of an undefined global — nil. The
-    rule would then register with a nil match and match nothing, silently,
-    instead of being refused. Every other numeric config field already goes
-    through _is_num, which is what excludes these.
-    """
-    cfg = {
-        "speed": 1.0,
-        "canvas": {
-            "preserve_geometry": True,
-            "auto_float": True,
-            "spawn": {
-                "center": True,
-                "default": "30%x40%",
-                "rules": [{"match": {"class": value}, "size": "910x930"}],
-            },
-        },
-    }
-
-    problems = validate(cfg)
-
-    assert any("must be a string, bool or finite number" in p for p in problems), problems
+    # The exact key set, so a silently added setting is caught here.
+    assert cfg["canvas"]["spawn"] == {"center": True, "default": "50%x60%"}

@@ -385,7 +385,7 @@ def test_a_stuck_rule_keeps_its_name_in_the_state_after_off():
         protected_apps=[],
         cooldown=0.0,
         auto_float=True,
-        spawn_cfg={"center": True, "default": "30%x40%", "rules": []},
+        spawn_cfg={"center": True, "default": "30%x40%"},
     )
     with patch("canvas.navigation.toggle_state.load", return_value={}):
         nav._canvas_mode_workspaces[1] = {"0x1": {"at": [0, 0], "size": [935, 493]}}
@@ -416,7 +416,7 @@ def test_a_stuck_rule_keeps_its_name_in_memory_when_on_cannot_start():
         protected_apps=[],
         cooldown=0.0,
         auto_float=True,
-        spawn_cfg={"center": True, "default": "30%x40%", "rules": []},
+        spawn_cfg={"center": True, "default": "30%x40%"},
     )
     nav._spawn_rules = {}
 

@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 from canvas.navigation import Navigator
 
-SPAWN_CFG = {"center": True, "default": "30%x40%", "rules": []}
+SPAWN_CFG = {"center": True, "default": "30%x40%"}
 
 
 def _window(addr, x, y, w, h, floating=False, ws=1, cls="kitty", title="t"):
@@ -375,13 +375,9 @@ def test_spawn_size_does_not_touch_existing_tiled_windows():
     assert targets.last == {"0x1": {"at": [17, 61], "size": [463, 493]}}
 
 
-def test_spawn_override_does_not_touch_existing_windows():
-    """A per-class override is no more entitled to reshape an open window."""
-    cfg = {
-        "center": True,
-        "default": "30%x40%",
-        "rules": [{"match": {"class": "btop"}, "size": "910x930"}],
-    }
+def test_spawn_default_does_not_touch_existing_windows():
+    """A spawn size is for windows that arrive later, not for open ones."""
+    cfg = {"center": True, "default": "30%x40%"}
     nav = _navigator(
         _ipc([_window("0x1", 17, 61, 463, 493, cls="btop")]), auto_float=True, spawn_cfg=cfg
     )

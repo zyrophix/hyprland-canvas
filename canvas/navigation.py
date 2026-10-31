@@ -521,7 +521,7 @@ class Navigator:
 
         if not self._set_all_floating(workspace_id, floating=True):
             failure = "ERROR:FLOAT_FAILED"
-        elif not self._apply_canvas_geometry(workspace_id, tiled_snapshot, workarea):
+        elif not self._apply_canvas_geometry(workspace_id, tiled_snapshot):
             failure = "ERROR:GEOMETRY_RESTORE_FAILED"
         else:
             failure = ""
@@ -801,7 +801,6 @@ class Navigator:
         self,
         workspace_id: int,
         snapshot: dict[str, dict[str, list[int]]],
-        workarea: Workarea | None,
     ) -> bool:
         """Give every freshly floated window a geometry we chose.
 

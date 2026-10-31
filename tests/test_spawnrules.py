@@ -9,11 +9,9 @@ from canvas.spawnrules import (
     build_rules,
     default_rule_name,
     disable,
-    override_rule_name,
     parse_size,
     register,
     resolve_workareas,
-    rule_names,
     size_spec_error,
 )
 
@@ -77,23 +75,21 @@ def test_parse_size_raises_on_invalid_spec():
 # --- rule building ----------------------------------------------------------
 
 
-def test_catch_all_rule_is_registered_first():
-    """The compositor applies matching rules in order, so the default must be first."""
-    cfg = {
-        "center": True,
-        "default": "30%x40%",
-        "rules": [{"match": {"class": "btop"}, "size": "910x930"}],
-    }
+def test_build_rules_returns_one_rule_per_workspace():
+    """One rule, not a catch-all plus overrides.
+
+    The per-class list duplicated what a windowrule already does, and the mirror
+    of the compositor's match table that fed it had drifted from the real one —
+    so the rule it built could silently match more than the config said.
+    """
+    cfg = {"center": True, "default": "30%x40%"}
     rules = build_rules(cfg, 5, WORKAREA)
 
-    assert [name for name, _ in rules] == [
-        default_rule_name(5),
-        override_rule_name(5, 0),
-    ]
+    assert [name for name, _ in rules] == [default_rule_name(5)]
 
 
 def test_catch_all_matches_any_class():
-    cfg = {"center": True, "default": "600x400", "rules": []}
+    cfg = {"center": True, "default": "600x400"}
     _name, lua = build_rules(cfg, 1, WORKAREA)[0]
 
     assert 'class = ".*"' in lua
@@ -113,7 +109,7 @@ def test_rule_places_a_window_without_restyling_it():
     for. no_blur is in this list because the old comment named it while the code
     set no_shadow instead.
     """
-    cfg = {"center": True, "default": "600x400", "rules": []}
+    cfg = {"center": True, "default": "600x400"}
     _name, lua = build_rules(cfg, 1, WORKAREA)[0]
 
     for field in ("immediate", "no_anim", "no_dim", "no_shadow", "no_blur"):
@@ -121,91 +117,10 @@ def test_rule_places_a_window_without_restyling_it():
 
 
 def test_center_can_be_disabled():
-    cfg = {"center": False, "default": "600x400", "rules": []}
+    cfg = {"center": False, "default": "600x400"}
     _name, lua = build_rules(cfg, 1, WORKAREA)[0]
 
     assert "center = true" not in lua
-
-
-def test_override_percent_resolved_per_workspace():
-    cfg = {
-        "center": True,
-        "default": "30%x40%",
-        "rules": [{"match": {"class": "btop"}, "size": "50%x50%"}],
-    }
-    _name, lua = build_rules(cfg, 2, (0, 0, 1000, 500))[1]
-
-    assert "size = { 500, 250 }" in lua
-
-
-def test_override_match_is_passed_through_verbatim():
-    """User matchers are handed to the compositor as-is, regex and all."""
-    cfg = {
-        "center": True,
-        "default": "30%x40%",
-        "rules": [{"match": {"title": ".*nvim.*"}, "size": "800x600"}],
-    }
-    _name, lua = build_rules(cfg, 1, WORKAREA)[1]
-
-    assert 'title = ".*nvim.*"' in lua
-
-
-def test_bool_and_numeric_match_values_render_bare():
-    cfg = {
-        "center": True,
-        "default": "600x400",
-        "rules": [{"match": {"floating": False, "pid": 3}, "size": "600x400"}],
-    }
-    _name, lua = build_rules(cfg, 1, WORKAREA)[1]
-
-    assert "floating = false" in lua
-    assert "pid = 3" in lua
-
-
-def test_match_string_values_are_escaped():
-    cfg = {
-        "center": True,
-        "default": "600x400",
-        "rules": [{"match": {"class": 'ev"il'}, "size": "600x400"}],
-    }
-    _name, lua = build_rules(cfg, 1, WORKAREA)[1]
-
-    assert r'class = "ev\"il"' in lua
-
-
-def test_unknown_match_property_rejected():
-    cfg = {
-        "center": True,
-        "default": "600x400",
-        "rules": [{"match": {"klass": "btop"}, "size": "600x400"}],
-    }
-    with pytest.raises(SpawnRuleError, match="unknown match property"):
-        build_rules(cfg, 1, WORKAREA)
-
-
-def test_empty_match_rejected():
-    cfg = {"center": True, "default": "600x400", "rules": [{"match": {}, "size": "600x400"}]}
-    with pytest.raises(SpawnRuleError):
-        build_rules(cfg, 1, WORKAREA)
-
-
-def test_invalid_override_size_rejected():
-    cfg = {
-        "center": True,
-        "default": "600x400",
-        "rules": [{"match": {"class": "btop"}, "size": "big"}],
-    }
-    with pytest.raises(SpawnRuleError):
-        build_rules(cfg, 1, WORKAREA)
-
-
-def test_rule_names_are_deterministic():
-    assert rule_names(5, 2) == [
-        "canvas-spawn-ws5-default",
-        "canvas-spawn-ws5-override-0",
-        "canvas-spawn-ws5-override-1",
-    ]
-    assert rule_names(5, 2) == rule_names(5, 2)
 
 
 # --- workarea resolution ----------------------------------------------------
@@ -296,7 +211,7 @@ def test_resolve_workareas_survives_ipc_failure():
 
 def test_register_sends_one_batch_and_returns_names():
     ipc = _ipc({})
-    rules = build_rules({"center": True, "default": "600x400", "rules": []}, 1, WORKAREA)
+    rules = build_rules({"center": True, "default": "600x400"}, 1, WORKAREA)
 
     names = register(rules, ipc)
 
@@ -318,7 +233,7 @@ def test_register_failure_undoes_partial_batch():
     """A batch that aborts halfway must not leave earlier rules live."""
     ipc = _ipc({})
     ipc.eval_lua.side_effect = [RuntimeError("lua exploded"), "ok"]
-    rules = build_rules({"center": True, "default": "600x400", "rules": []}, 1, WORKAREA)
+    rules = build_rules({"center": True, "default": "600x400"}, 1, WORKAREA)
 
     with pytest.raises(SpawnRuleError):
         register(rules, ipc)
@@ -367,16 +282,6 @@ def test_default_rule_is_scoped_to_the_workspace():
         assert name == "canvas-spawn-ws4-default"
 
 
-def test_override_rules_are_scoped_too():
-    cfg = {
-        "center": True,
-        "default": "600x400",
-        "rules": [{"match": {"class": "btop"}, "size": "910x930"}],
-    }
-    for _name, lua in build_rules(cfg, 7, WORKAREA):
-        assert "workspace = 7" in lua, lua
-
-
 def test_two_workspaces_get_distinct_workspace_conditions():
     """Otherwise the second registration wins everywhere, sizing windows on the
     first workspace against the second workspace's workarea."""
@@ -387,42 +292,6 @@ def test_two_workspaces_get_distinct_workspace_conditions():
     assert "workspace = 4" in ws4
     assert "workspace = 9" in ws9
     assert "workspace = 4" not in ws9
-
-
-def test_rule_declaring_a_different_workspace_is_rejected():
-    """It cannot be satisfied by a rule registered for this workspace, so it is
-    an error rather than a match that never fires."""
-    cfg = {
-        "center": True,
-        "default": "600x400",
-        "rules": [{"match": {"class": "btop", "workspace": 3}, "size": "910x930"}],
-    }
-    with pytest.raises(SpawnRuleError) as exc:
-        build_rules(cfg, 1, WORKAREA)
-    assert "workspace 1" in str(exc.value)
-
-
-def test_rule_repeating_its_own_workspace_is_accepted():
-    cfg = {
-        "center": True,
-        "default": "600x400",
-        "rules": [{"match": {"class": "btop", "workspace": 1}, "size": "910x930"}],
-    }
-    rules = build_rules(cfg, 1, WORKAREA)
-    assert len(rules) == 2
-    assert "workspace = 1" in rules[1][1]
-
-
-def test_match_must_be_a_mapping():
-    """build_rules now validates the shape, since it has to add a key to it."""
-    cfg = {
-        "center": True,
-        "default": "600x400",
-        "rules": [{"match": "btop", "size": "910x930"}],
-    }
-    with pytest.raises(SpawnRuleError) as exc:
-        build_rules(cfg, 1, WORKAREA)
-    assert "must be a non-empty mapping" in str(exc.value)
 
 
 def test_reserved_order_is_left_top_right_bottom():

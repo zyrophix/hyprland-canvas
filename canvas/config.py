@@ -8,7 +8,7 @@ from typing import Any, TypeGuard
 
 import yaml
 
-from canvas.spawnrules import MATCH_KEYS, size_spec_error
+from canvas.spawnrules import size_spec_error
 
 
 class ConfigError(Exception):
@@ -50,7 +50,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "spawn": {
             "center": True,
             "default": "50%x60%",
-            "rules": [],
         },
     },
 }
@@ -209,38 +208,6 @@ def _validate_spawn(spawn: object) -> list[str]:
     problem = size_spec_error(default)
     if problem:
         errors.append(f"canvas.spawn.default {problem}")
-
-    rules = spawn.get("rules")
-    if not isinstance(rules, list):
-        errors.append(f"canvas.spawn.rules must be a list, got {rules!r}")
-        return errors
-
-    for index, entry in enumerate(rules):
-        if not isinstance(entry, dict):
-            errors.append(f"canvas.spawn.rules[{index}] must be a mapping")
-            continue
-        match = entry.get("match")
-        if not isinstance(match, dict) or not match:
-            errors.append(f"canvas.spawn.rules[{index}].match must be a non-empty mapping")
-        else:
-            for key in match:
-                if key not in MATCH_KEYS:
-                    errors.append(
-                        f"canvas.spawn.rules[{index}].match has unknown property {key!r}; "
-                        f"expected one of {', '.join(sorted(MATCH_KEYS))}"
-                    )
-                elif not isinstance(match[key], (str, bool)) and not _is_num(match[key]):
-                    # _is_num and not the plain isinstance: repr(nan) and repr(inf)
-                    # are `nan` and `inf`, which are not Lua literals. They
-                    # compile as reads of undefined globals, so the rule would
-                    # register with a nil match instead of being refused.
-                    errors.append(
-                        f"canvas.spawn.rules[{index}].match.{key} must be a string, "
-                        f"bool or finite number, got {match[key]!r}"
-                    )
-        spec_problem = size_spec_error(entry.get("size"))
-        if spec_problem:
-            errors.append(f"canvas.spawn.rules[{index}].size {spec_problem}")
 
     return errors
 
