@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from canvas import toggle_state
+from canvas.config import DEFAULT_CONFIG, _deep_merge, validate
 from canvas.ipc import _MY_UID, _ensure_private_dir, runtime_dir, send_command
 from canvas.navigation import FSMODE_FULLSCREEN, Navigator, fullscreen_state
 
@@ -262,3 +263,35 @@ def test_send_command_reports_an_unusable_runtime_dir():
         result = send_command("PING")
 
     assert result.startswith("ERROR: owned by uid 0")
+
+
+# --- config keys this version does not read -------------------------------
+
+
+def _validate(**over: object) -> list[str]:
+    return validate(_deep_merge(DEFAULT_CONFIG, over))
+
+
+def test_validate_rejects_an_unknown_top_level_key():
+    problems = _validate(totally_unknown=1)
+
+    assert any("totally_unknown" in p and "not a setting" in p for p in problems), problems
+
+
+def test_validate_rejects_a_typo_inside_a_section():
+    problems = _validate(navigation={"protcted_apps": ["x"]})
+
+    assert any("navigation.protcted_apps" in p for p in problems), problems
+
+
+def test_validate_accepts_a_setting_whose_default_is_none():
+    """max_speed defaults to None while a number is valid, so only the key is
+    compared — a type test against the default would reject every real value."""
+    assert _validate(max_speed=5) == []
+    assert _validate(edge_scroll={"max_speed": 30}) == []
+
+
+def test_validate_does_not_walk_into_lists():
+    """protected_apps and window_pan_excludes hold strings, not mappings."""
+    assert _validate(window_pan_excludes=["zoom", "slack"]) == []
+    assert _validate(navigation={"protected_apps": ["firefox"]}) == []

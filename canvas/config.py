@@ -74,12 +74,52 @@ def _is_num(value: object) -> TypeGuard[int | float]:
     return not isinstance(value, float) or math.isfinite(value)
 
 
+# Settings a previous version read and this one does not. Without a message of
+# its own the generic one below fires, which is technically true and practically
+# useless: the reader needs to know what to do with the key, not that it is
+# unknown.
+_REMOVED_KEYS: dict[str, str] = {
+    "canvas.spawn.rules": (
+        "canvas.spawn.rules was removed in 1.7.0 — per-class spawn sizing belongs "
+        'in your Hyprland config as a windowrule now; see README, "Sizing windows '
+        'that open during canvas". Delete this key.'
+    ),
+}
+
+
+def _unknown_keys(cfg: Any, shape: Any, prefix: str = "") -> list[str]:
+    """Dotted names of keys `cfg` has and `shape` (the defaults) does not.
+
+    The defaults are the schema: `apply_config` reads nothing that is not in
+    them. `_deep_merge` copies every user key through unchecked, so a typo or a
+    setting from an older version reaches the daemon looking exactly like one it
+    understood, and the edit appears to do nothing.
+
+    Only key presence is compared, never types: `max_speed` defaults to None
+    while a valid value is a number, so a type test here would reject it.
+    """
+    if not isinstance(cfg, dict) or not isinstance(shape, dict):
+        return []
+    out: list[str] = []
+    for key, value in cfg.items():
+        name = f"{prefix}{key}"
+        if key not in shape:
+            out.append(name)
+            continue
+        out.extend(_unknown_keys(value, shape[key], f"{name}."))
+    return out
+
+
 def validate(cfg: dict[str, Any]) -> list[str]:
     """Validate configuration values. Returns a list of human-readable problems.
 
     An empty list means the config is safe to run with.
     """
     errors: list[str] = []
+    errors.extend(
+        _REMOVED_KEYS.get(name, f"{name} is not a setting this version reads")
+        for name in _unknown_keys(cfg, DEFAULT_CONFIG)
+    )
 
     speed = cfg.get("speed")
     if not _is_num(speed) or speed <= 0:
