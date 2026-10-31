@@ -1,6 +1,8 @@
+import logging
 import math
+from unittest.mock import patch
 
-from canvas.panning import EdgeScrollParams, EdgeScrollState, PanningState
+from canvas.panning import EdgeScrollParams, EdgeScrollState, PanningState, cursor_poller
 
 
 def test_start_pan_activates():
@@ -644,3 +646,236 @@ def test_drag_away_from_an_edge_stops_that_side():
         assert es.active, f"session died while dragging back at step {i}"
 
     assert es.pending_preview[0] == 0
+
+
+# --- cursor_poller ----------------------------------------------------------
+#
+# The poller has no exit of its own besides the stop event, so the mocked cursor
+# query sets it once it has been asked for every position. That keeps the test
+# single-threaded: no thread to join, no sleep to race against.
+
+
+class _StopFlag:
+    """A stop event that never sleeps.
+
+    `cursor_poller` calls `wait(0.016)` on every iteration, so a real Event puts
+    16 ms of actual sleep into each test. This also counts the calls, which is
+    the only way to notice if the throttle is ever dropped.
+    """
+
+    def __init__(self) -> None:
+        self._set = False
+        self.waits = 0
+
+    def is_set(self) -> bool:
+        return self._set
+
+    def set(self) -> None:
+        self._set = True
+
+    def wait(self, _timeout: float) -> bool:
+        self.waits += 1
+        return self._set
+
+
+def _run_poller(
+    state: PanningState,
+    edge_scroll: EdgeScrollState,
+    positions: list[tuple[int, int]],
+) -> tuple[int, _StopFlag]:
+    stop = _StopFlag()
+    calls = {"n": 0}
+
+    def cursor() -> tuple[int, int]:
+        index = calls["n"]
+        calls["n"] += 1
+        if calls["n"] >= len(positions):
+            stop.set()
+        return positions[index]
+
+    with patch("canvas.panning.hypr.get_cursor_pos", side_effect=cursor):
+        cursor_poller(state, edge_scroll, stop)
+    return calls["n"], stop
+
+
+def _run_failing(state: PanningState) -> tuple[int, _StopFlag]:
+    stop = _StopFlag()
+    calls = {"n": 0}
+
+    def boom() -> tuple[int, int]:
+        calls["n"] += 1
+        raise RuntimeError("nope")
+
+    with patch("canvas.panning.hypr.get_cursor_pos", side_effect=boom):
+        cursor_poller(state, EdgeScrollState(), stop)
+    return calls["n"], stop
+
+
+def test_cursor_poller_does_nothing_when_already_stopped():
+    stop = _StopFlag()
+    stop.set()
+
+    with patch("canvas.panning.hypr.get_cursor_pos") as cursor:
+        cursor_poller(PanningState(), EdgeScrollState(), stop)
+
+    cursor.assert_not_called()
+    assert stop.waits == 0
+
+
+def test_cursor_poller_feeds_the_cursor_and_leaves_geometry_alone():
+    state = PanningState(speed=1.0)
+    state.start_pan()
+
+    with patch("canvas.panning.hypr.get_active_window_geometry") as geometry:
+        attempts, stop = _run_poller(state, EdgeScrollState(enabled=True), [(10, 10), (20, 30)])
+
+    assert attempts == 2
+    # Edge-scroll is not active, so the extra round trip must not happen.
+    geometry.assert_not_called()
+    assert state.get_total_delta() == (-10, -20)
+    # And the loop paces itself once per iteration.
+    assert stop.waits == 2
+
+
+def test_cursor_poller_feeds_window_geometry_while_edge_scrolling():
+    es = EdgeScrollState(enabled=True)
+    _start_edge(es, 700, 390)
+    geometry = ("0xabc", 700, 390, 500, 300)
+
+    with (
+        patch("canvas.panning.debug.enabled", return_value=False),
+        patch("canvas.panning.hypr.get_active_window_geometry", return_value=geometry),
+    ):
+        _run_poller(PanningState(), es, [(900, 500)])
+
+    assert es.last_geometry == (700, 390, 500, 300)
+
+
+def test_cursor_poller_tolerates_a_missing_window_geometry():
+    es = EdgeScrollState(enabled=True)
+    _start_edge(es, 700, 390)
+
+    with (
+        patch("canvas.panning.debug.enabled", return_value=False),
+        patch("canvas.panning.hypr.get_active_window_geometry", return_value=None),
+        patch.object(es, "update_geometry") as update,
+    ):
+        _run_poller(PanningState(), es, [(900, 500)])
+
+    update.assert_not_called()
+
+
+def test_cursor_poller_logs_a_tick_at_most_every_tenth_of_a_second():
+    es = EdgeScrollState(enabled=True)
+    _start_edge(es, 700, 390)
+    state = PanningState()
+    geometry = ("0xabc", 1, 2, 3, 4)
+    # One reading per iteration: 0.0 is too soon after the 0.0 start, 0.05 too
+    # soon after that, 0.2 and 0.5 are far enough apart to pass the gate.
+    readings: list[float] = [0.0, 0.05, 0.2, 0.5]
+    asked: list[float] = []
+
+    def monotonic() -> float:
+        asked.append(1.0)
+        return readings[len(asked) - 1] if len(asked) <= len(readings) else 0.0
+
+    with (
+        patch("canvas.panning.debug.enabled", return_value=True),
+        patch("canvas.panning.debug.dbg") as dbg,
+        patch("canvas.panning.hypr.get_active_window_geometry", return_value=geometry),
+        patch("canvas.panning.time.monotonic", side_effect=monotonic),
+        patch.object(state, "update_cursor"),
+        patch.object(es, "update_geometry"),
+    ):
+        _run_poller(state, es, [(1, 1), (2, 2), (3, 3), (4, 4)])
+
+    # Exactly one clock reading per iteration, so the list above lines up.
+    assert len(asked) == 4
+    ticks = [c for c in dbg.call_args_list if c.args and c.args[0] == "EDGE_SESSION_TICK"]
+    assert len(ticks) == 2
+    assert [c.kwargs["cursor"] for c in ticks] == [(3, 3), (4, 4)]
+    assert [c.kwargs["addr"] for c in ticks] == ["0xabc", "0xabc"]
+    assert ticks[0].kwargs["geo"] is None
+    assert ticks[0].kwargs["confirmed"] is False
+
+
+def test_cursor_poller_does_not_log_ticks_with_tracing_off():
+    es = EdgeScrollState(enabled=True)
+    _start_edge(es, 700, 390)
+
+    with (
+        patch("canvas.panning.debug.enabled", return_value=False),
+        patch("canvas.panning.debug.dbg") as dbg,
+        patch("canvas.panning.hypr.get_active_window_geometry", return_value=None),
+    ):
+        _run_poller(PanningState(), es, [(1, 1), (2, 2)])
+
+    dbg.assert_not_called()
+
+
+def test_cursor_poller_gives_up_after_ten_consecutive_failures():
+    state = PanningState()
+
+    attempts, stop = _run_failing(state)
+
+    assert attempts == 11
+    assert state.poller_alive is False
+    assert stop.is_set()
+    # Ten failures wait between them; the eleventh returns without waiting.
+    assert stop.waits == 10
+
+
+def test_cursor_poller_warns_three_times_and_then_only_errors(caplog):
+    with caplog.at_level(logging.WARNING, logger="canvas.panning"):
+        _run_failing(PanningState())
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(warnings) == 3
+    assert len(errors) == 1
+
+
+def test_cursor_poller_resets_the_error_count_after_a_success():
+    """Ten failures give up, but they have to be consecutive."""
+    state = PanningState()
+    stop = _StopFlag()
+    script: list[object] = ["boom"] * 5 + [(0, 0)] + ["boom"] * 6
+    calls = {"n": 0}
+
+    def draw() -> tuple[int, int]:
+        index = calls["n"]
+        calls["n"] += 1
+        if calls["n"] >= len(script):
+            stop.set()
+        if script[index] == "boom":
+            raise RuntimeError("nope")
+        return (0, 0)
+
+    with patch("canvas.panning.hypr.get_cursor_pos", side_effect=draw):
+        cursor_poller(state, EdgeScrollState(), stop)
+
+    # Eleven failures overall, but never ten in a row.
+    assert calls["n"] == len(script)
+    assert state.poller_alive is True
+
+
+def test_update_geometry_ignores_an_inactive_session():
+    es = EdgeScrollState(enabled=True)
+
+    es.update_geometry("0xabc", 700, 390, 500, 300, 900, 500)
+
+    assert es.last_geometry is None
+
+
+def test_update_geometry_ignores_a_session_disabled_mid_drag():
+    es = EdgeScrollState(enabled=True)
+    _start_edge(es, 700, 390)
+    es.enabled = False
+
+    es.update_geometry("0xabc", 700, 390, 500, 300, 900, 500)
+
+    assert es.last_geometry is None
+
+
+def test_edge_scroll_idle_timeout_is_a_no_op_when_inactive():
+    assert EdgeScrollState(enabled=True).check_idle_timeout() is False
