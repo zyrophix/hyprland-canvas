@@ -207,6 +207,7 @@ All defaults are built into the daemon (`DEFAULT_CONFIG` in `canvas/config.py`) 
 
 ```yaml
 speed: 1.6                    # pan speed multiplier
+idle_timeout: 0.5             # seconds of gesture silence before pan/edge-scroll stops
 invert:
   enabled: true               # true = grab canvas (intuitive), false = follow cursor
 edge_scroll:

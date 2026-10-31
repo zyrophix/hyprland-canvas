@@ -42,11 +42,17 @@ class PanningState:
     eliminating drift.
     """
 
-    _IDLE_TIMEOUT = 0.5  # auto-stop after 500ms without cursor movement
-
-    def __init__(self, speed: float = 1.0, max_speed: float | None = None):
+    def __init__(
+        self,
+        speed: float = 1.0,
+        max_speed: float | None = None,
+        idle_timeout: float = 0.5,
+    ):
         self.speed = speed
         self.max_speed = max_speed
+        # Seconds without gesture input before a pan ends on its own, for the
+        # case where the release bind never arrives. Set from config at boot.
+        self.idle_timeout = idle_timeout
         self._pan_active = False
         self._inverted = False
         self.poller_alive = True
@@ -125,9 +131,9 @@ class PanningState:
             self._prev_y = y
 
     def check_idle_timeout(self) -> bool:
-        """Auto-stop if cursor hasn't moved for _IDLE_TIMEOUT (release bind fallback)."""
+        """Auto-stop if cursor hasn't moved for `idle_timeout` (release fallback)."""
         with self._lock:
-            if self._pan_active and (time.monotonic() - self._last_move_time) > self._IDLE_TIMEOUT:
+            if self._pan_active and (time.monotonic() - self._last_move_time) > self.idle_timeout:
                 self._pan_active = False
                 self._prev_x = None
                 self._prev_y = None
@@ -186,7 +192,6 @@ class EdgeScrollState:
     a lost grab killed the camera for the rest of the press.
     """
 
-    _IDLE_TIMEOUT = 0.5
     CURSOR_MARGIN = 8  # px of slack around the dragged window for the cursor check
 
     def __init__(
@@ -196,16 +201,21 @@ class EdgeScrollState:
         max_speed: float | None = None,
         enabled: bool = True,
         grab_dead_zone: int = 5,
+        idle_timeout: float = 0.5,
     ) -> None:
         self.ramp_distance = ramp_distance
         self.speed = speed
         self.max_speed = max_speed
         self.enabled = enabled
         self.grab_dead_zone = grab_dead_zone
+        # Seconds without the dragged window or the cursor moving before the
+        # session ends on its own, covering a lost release. Set from config.
+        self.idle_timeout = idle_timeout
         self._active = False
         self._dragged_addr: str = ""
         self._session = 0
         self._last_geo: tuple[int, int, int, int] | None = None
+        self._last_cursor: tuple[int, int] | None = None
         self._monitor_x = 0
         self._monitor_y = 0
         self._monitor_w = 1920
@@ -273,6 +283,7 @@ class EdgeScrollState:
             self._prev_y = params.win_y
             self._confirmed_drag = False
             self._last_geo = None
+            self._last_cursor = None
             self._pending_dx = 0.0
             self._pending_dy = 0.0
             self._last_move_time = time.monotonic()
@@ -352,7 +363,17 @@ class EdgeScrollState:
                     self._pending_dy = 0.0
                     return
 
+            # The session stays alive while the drag is producing input: the
+            # dragged window moving, or the pointer moving. The camera's own
+            # pending delta is deliberately not part of this — parked against an
+            # edge it stays constant, and the session must end on its own then,
+            # which is what the fallback is for.
+            window_moved = self._last_geo is None or (x, y) != self._last_geo[:2]
+            cursor_moved = self._last_cursor is None or (cursor_x, cursor_y) != self._last_cursor
+            if window_moved or cursor_moved:
+                self._last_move_time = time.monotonic()
             self._last_geo = (x, y, w, h)
+            self._last_cursor = (cursor_x, cursor_y)
 
             # Click-vs-drag threshold (driftwm uses 5px): until the window
             # itself moved beyond it, this is still just a press.
@@ -382,7 +403,6 @@ class EdgeScrollState:
             dist_top = y - my
             dist_bottom = (my + mh) - (y + h)
 
-            before_x, before_y = self._pending_dx, self._pending_dy
             tick_dx = 0.0
             tick_dy = 0.0
 
@@ -421,9 +441,6 @@ class EdgeScrollState:
             self._prev_x = x
             self._prev_y = y
 
-            if self._pending_dx != before_x or self._pending_dy != before_y:
-                self._last_move_time = time.monotonic()
-
     def consume_delta(self) -> tuple[int, int]:
         """Return and clear pending (dx, dy) for moving other windows.
 
@@ -443,9 +460,9 @@ class EdgeScrollState:
             return -int(round(dx)), -int(round(dy))
 
     def check_idle_timeout(self) -> bool:
-        """Auto-stop if no real scroll activity for _IDLE_TIMEOUT."""
+        """Auto-stop if the drag has shown no activity for `idle_timeout`."""
         with self._lock:
-            if self._active and (time.monotonic() - self._last_move_time) > self._IDLE_TIMEOUT:
+            if self._active and (time.monotonic() - self._last_move_time) > self.idle_timeout:
                 debug.dbg("EDGE_DISARM", s=self._session, reason="idle_timeout")
                 self._active = False
                 self._dragged_addr = ""

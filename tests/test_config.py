@@ -342,7 +342,7 @@ def test_toggle_state_save_raises_on_write_failure(tmp_path):
 
 
 def _cfg(**canvas):
-    return {"speed": 1.6, "canvas": {"preserve_geometry": True, **canvas}}
+    return {"speed": 1.6, "idle_timeout": 0.5, "canvas": {"preserve_geometry": True, **canvas}}
 
 
 def test_validate_accepts_minimal_spawn():
@@ -405,3 +405,16 @@ def test_load_without_any_candidate_uses_the_built_ins():
         cfg = load(skip_user=True)
 
     assert cfg["canvas"]["spawn"]["default"] == "50%x60%"
+
+
+def test_validate_rejects_a_negative_idle_timeout():
+    problems = validate({"speed": 1.0, "idle_timeout": -1})
+
+    assert any("idle_timeout" in p for p in problems)
+
+
+def test_validate_rejects_a_zero_idle_timeout():
+    """Zero would disarm on the first check, so it is a mistake, not an opt-out."""
+    problems = validate({"speed": 1.0, "idle_timeout": 0})
+
+    assert any("idle_timeout" in p for p in problems)

@@ -18,6 +18,8 @@ class ConfigError(Exception):
 DEFAULT_CONFIG: dict[str, Any] = {
     "speed": 1.6,
     "max_speed": None,
+    # Seconds without gesture input before pan or edge-scroll ends on its own.
+    "idle_timeout": 0.5,
     "navigation": {
         "cooldown": 0.2,
         "protected_apps": [
@@ -127,6 +129,10 @@ def validate(cfg: dict[str, Any]) -> list[str]:
     max_speed = cfg.get("max_speed")
     if max_speed is not None and (not _is_num(max_speed) or max_speed <= 0):
         errors.append(f"max_speed must be a number > 0 or null, got {max_speed!r}")
+
+    idle_timeout = cfg.get("idle_timeout")
+    if not _is_num(idle_timeout) or idle_timeout <= 0:
+        errors.append(f"idle_timeout must be a number > 0, got {idle_timeout!r}")
 
     nav = cfg.get("navigation")
     if not isinstance(nav, dict):

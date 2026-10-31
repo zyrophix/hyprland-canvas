@@ -1,5 +1,6 @@
 import logging
 import math
+import time
 from unittest.mock import patch
 
 from canvas.panning import EdgeScrollParams, EdgeScrollState, PanningState, cursor_poller
@@ -879,3 +880,42 @@ def test_update_geometry_ignores_a_session_disabled_mid_drag():
 
 def test_edge_scroll_idle_timeout_is_a_no_op_when_inactive():
     assert EdgeScrollState(enabled=True).check_idle_timeout() is False
+
+
+# --- idle timeout ------------------------------------------------------------
+
+
+def test_edge_timeout_resets_on_drag_activity_without_camera_motion():
+    """A drag that has not reached an edge is still a drag. The camera's pending
+    delta is not the activity signal: this window sits in the middle of the
+    monitor, nothing scrolls, and the session has to survive anyway."""
+    es = EdgeScrollState(enabled=True, idle_timeout=0.5)
+    _start_edge(es, 700, 390)
+    es.update_geometry("0xabc", 700, 390, 500, 300, 950, 540)
+    es._last_move_time = time.monotonic() - 1.0
+
+    es.update_geometry("0xabc", 706, 396, 500, 300, 956, 546)
+
+    assert es.check_idle_timeout() is False
+
+
+def test_edge_timeout_resets_when_only_the_cursor_moves():
+    es = EdgeScrollState(enabled=True, idle_timeout=0.5)
+    _start_edge(es, 700, 390)
+    es.update_geometry("0xabc", 700, 390, 500, 300, 950, 540)
+    es._last_move_time = time.monotonic() - 1.0
+
+    es.update_geometry("0xabc", 700, 390, 500, 300, 951, 541)
+
+    assert es.check_idle_timeout() is False
+
+
+def test_edge_timeout_fires_when_nothing_moves():
+    es = EdgeScrollState(enabled=True, idle_timeout=0.5)
+    _start_edge(es, 700, 390)
+    es.update_geometry("0xabc", 700, 390, 500, 300, 950, 540)
+    es._last_move_time = time.monotonic() - 1.0
+
+    es.update_geometry("0xabc", 700, 390, 500, 300, 950, 540)
+
+    assert es.check_idle_timeout() is True

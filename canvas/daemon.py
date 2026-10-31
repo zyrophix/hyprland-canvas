@@ -100,10 +100,12 @@ class DaemonState:
             self.config_source = source
             self.panning.speed = cfg["speed"]
             self.panning.max_speed = cfg["max_speed"]
+            self.panning.idle_timeout = cfg["idle_timeout"]
             self.panning.inverted = cfg["invert"]["enabled"]
 
             edge_cfg = cfg["edge_scroll"]
             self.edge_scroll.ramp_distance = edge_cfg["ramp_distance"]
+            self.edge_scroll.idle_timeout = cfg["idle_timeout"]
             self.edge_scroll.speed = edge_cfg["speed"]
             self.edge_scroll.max_speed = edge_cfg["max_speed"]
             self.edge_scroll.enabled = edge_cfg["enabled"]

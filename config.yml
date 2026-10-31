@@ -2,6 +2,7 @@
 # Copy to ~/.config/canvas/config.yml and customize
 
 speed: 1.6
+idle_timeout: 0.5             # seconds of gesture silence before pan/edge-scroll stops
 # max_speed: 50              # optional: cap per-frame cursor delta (pixels)
 
 navigation:

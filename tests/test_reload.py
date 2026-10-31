@@ -14,6 +14,7 @@ from canvas.panning import EdgeScrollState, PanningState
 FULL_CONFIG = """
 speed: 2.5
 max_speed: 9.0
+idle_timeout: 1.25
 invert:
   enabled: false
 edge_scroll:
@@ -84,9 +85,11 @@ def test_apply_config_maps_every_key(tmp_path):
 
     assert ds.panning.speed == 2.5
     assert ds.panning.max_speed == 9.0
+    assert ds.panning.idle_timeout == 1.25
     assert ds.panning.inverted is False
     assert ds.edge_scroll.enabled is False
     assert ds.edge_scroll.ramp_distance == 77
+    assert ds.edge_scroll.idle_timeout == 1.25
     assert ds.edge_scroll.speed == 33.0
     assert ds.edge_scroll.max_speed == 44.0
     assert ds.edge_scroll.grab_dead_zone == 9
