@@ -29,28 +29,45 @@ the compositor make this cheap and are the reason no event listener is needed:
 
 - A rule only affects windows created **after** it is registered, so "enabled
   while canvas is on" is exactly the desired semantics.
-- Matching rules are applied in **registration order, last write wins**, so the
-  catch-all default is registered first and user overrides after it. Ordering
-  is the whole override mechanism — there is no separate precedence rule.
+- Matching rules are applied in **registration order, last write wins**: a rule
+  the daemon registers at toggle time overrides one declared in the user's
+  config, which was loaded at startup.
 - The rule engine is **global and outlives the daemon**, and Hyprland exposes no
   way to list windowrules. The registered names are therefore persisted in the
   toggle state and disabled again on OFF; at startup any names left behind by
   a crash are disabled before fresh ones are registered for workspaces that are
   still in canvas mode.
 
+**One rule per workspace.** It matches every class, but only on the workspace it
+was registered for: without that constraint a catch-all claims windows on
+ordinary desktops too. The name says `ws<N>` and retraction is by name, so the
+workspace has to appear in both.
+
 Percent sizes are resolved by the daemon because `windowrule` only takes pixels:
 the workarea of the monitor owning the workspace comes from `j/monitors` minus
-`reserved`, matched to the workspace via `monitorID` from `j/workspaces`.
+`reserved`, matched to the workspace via `monitorID` from `j/workspaces`. That is
+the *workarea*, while `monitor_w` in a `windowrule` size expression is the whole
+monitor; the two are not interchangeable.
 
 `size` has no effect on a tiled window — tiled placement is layout-owned — so
 `float` and `size` always travel in the same rule.
 
-Two transaction details matter:
+Transaction details that matter:
 
 - On **ON**, rules are registered before the state is persisted and before the
-  compositor is touched, so a registration failure needs no rollback.
+  compositor is touched, so a registration failure needs no rollback. A
+  workspace whose monitor cannot be resolved — one on a disabled output — enters
+  canvas mode without a rule instead of refusing the toggle: canvas mode is
+  about the windows already open, and the rule is for the ones that arrive later.
 - On **OFF**, rules are disabled only after tiling succeeded. A failed tile
   rolls the workspace back to floating, where the rules are still correct.
+
+**The rule engine does not survive a config reload.** `ConfigManager::reload()`
+calls `ruleEngine()->clearAllRules()` and clears its map of named rules, so a
+rule the daemon still believes in is gone and its name forgotten, with nothing
+reported. The daemon therefore re-registers on a timer while any workspace is in
+canvas mode. That is idempotent: while the rule is still live the name is known
+and `hl.window_rule` reuses the existing rule instead of adding a second.
 
 The OFF tile set is the snapshot taken at ON plus every window that is floating
 at OFF but was not floating at ON. Addresses already in the snapshot keep their
@@ -95,8 +112,8 @@ toggle.
 Addresses that were already floating at ON are absent from the snapshot and so
 are never touched.
 
-Because the compositor matches windowrule patterns with `re2::RE2::FullMatch`,
-`class: btop` matches only the exact class and a substring needs `.*btop.*`.
-The daemon does not match anything itself: match tables are passed through to
-the rule verbatim, and a pattern the compositor rejects fails the registration
-loudly rather than being silently ignored.
+The daemon builds the match itself — `{ class = ".*", workspace = N }` — so
+there is no user pattern to pass through. Per-class patterns are the compositor's
+business, through the user's own `windowrule`, and it matches those with
+`re2::RE2::FullMatch`: `class = "btop"` matches only the exact class, and a
+substring needs `.*btop.*`.

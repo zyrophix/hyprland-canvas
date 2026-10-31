@@ -27,7 +27,7 @@ included:
   `TILE_DONE` / `FLOAT_DONE` after it
 - `STATE_LOAD` / `STATE_SAVE` — toggle snapshot counts per workspace
 - `SPAWN_RULES_REGISTER` / `SPAWN_RULES_DISABLE` / `SPAWN_RULES_DROP` —
-  compositor windowrules for `canvas.auto_float`, with the names used; the last
+  compositor windowrules for `canvas.auto_float`, with the name used; the last
   one is the take-down on daemon exit
 - `PAN_START` / `PAN_STOP` / `MODE_SWITCH` — panning and mode hand-off
 - `CENTER_CURSOR`, `FLOATING_SNAPSHOT` — center-cursor and snapshot internals

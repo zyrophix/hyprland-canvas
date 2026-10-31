@@ -33,7 +33,7 @@ not to, so expect breaking changes.
 | Navigate | SUPER+SHIFT+Arrows | Spatial jump to nearest window in direction (up/down/left/right), auto-pan to center |
 | Center under cursor | SUPER+MMB | Center the canvas on the topmost floating window under the mouse cursor without changing focus |
 | Canvas toggle | SUPER+SHIFT+C | Toggle all windows on workspace to/from floating, keeping each window exactly where and how big it was |
-| Window sizing | on canvas enable | Give windows a size as they enter the canvas — one default plus per-`class`/`title` rules, opt-in (see [Configuration](#configuration)) |
+| Window sizing | on canvas enable | Give windows that open while canvas is on a size — one default, on by default (see [Sizing windows that open during canvas](#sizing-windows-that-open-during-canvas)) |
 | Toggle single | SUPER+SHIFT+V | Toggle focused window floating ↔ tiled |
 | Invert | SUPER+SHIFT+G | Invert pan direction |
 
@@ -207,23 +207,20 @@ canvas:
                                # the next ON. Recorded on every toggle off, so it
                                # cannot go stale. Windows you did not move come
                                # back to the exact box they had when tiled
-  auto_float: false           # shape windows opened while canvas is ON (see below)
+  auto_float: true            # shape windows opened while canvas is ON (see below)
   spawn:
     center: true              # centre new canvas windows on their monitor
-    default: 50%x60%          # size for any canvas window without an override
-    rules:                    # LAST match wins, like windowrule: list broad
-                               # rules first and narrow ones last
-      - match: { class: btop }
-        size: 960x620
-      - match: { title: ".*nvim.*" }
-        size: 45%x35%
+    default: 50%x60%          # size: pixels (960x620) or % of the monitor workarea
 ```
 
-Invalid values (wrong type, zero/negative numbers) are rejected
-at daemon startup with the exact offending keys listed on stderr. To pick up
-an edited config without restarting the daemon, run `canvas-ctl reload` — it
-re-reads the file, prints which one it used, and leaves the running config
-untouched if the new one does not validate.
+Invalid values (wrong type, zero/negative numbers, a size that is not a size)
+are rejected at daemon startup with the exact offending keys listed on stderr.
+So is a key this version does not read — a typo, or a setting an earlier version
+had — because unknown keys would otherwise be merged in without complaint, and a
+half-applied config is worse than one that refuses to start. To pick up an edited
+config without restarting the daemon, run `canvas-ctl reload` — it re-reads the
+file, prints which one it used, and leaves the running config untouched if the
+new one does not validate.
 
 ### What canvas-toggle does to window geometry
 
@@ -248,27 +245,78 @@ moves.
 
 ### Sizing windows that open during canvas
 
-With `canvas.auto_float: true`, a window opened while a workspace is in canvas
-mode arrives already floating, sized and centred — the compositor applies a
-windowrule at map time, so there is no visible reflow and no polling in the
-daemon.
+With `canvas.auto_float: true` — the default — a window opened while a workspace
+is in canvas mode arrives already floating, sized and centred. The compositor
+applies a windowrule at map time, so there is no visible reflow and no polling
+in the daemon.
 
-Sizes are either pixels (`960x620`) or a percentage of the workarea of the
-monitor that owns the workspace (`50%x60%`); they are clamped so a window can
-never be asked to be larger than the screen. `match` accepts the same
-properties as a Hyprland `windowrule` matcher, and values are treated as
-regular expressions, so `.*nvim.*` works. Note that Hyprland matches these
-patterns as a *full* match: `class: btop` matches only the exact class `btop`.
-When several rules match the same window the **last** one wins, the same as
-Hyprland's own `windowrule` — the compositor applies matching rules in
-registration order and the last write wins. So list broad rules first and
-narrow ones last; anything that matches no rule gets `default`.
+`canvas.spawn.default` is the size, either pixels (`960x620`) or a percentage of
+the workarea of the monitor that owns the workspace (`50%x60%`), clamped so a
+window is never asked to be larger than the screen. `canvas.spawn.center` puts it
+in the middle of that monitor. That is the whole of what the daemon configures.
+
+**Per-class sizes belong in your Hyprland config**, as an ordinary `windowrule`:
+
+```lua
+hl.window_rule({ match = { class = "btop" }, size = { 960, 620 }, float = true })
+```
+
+#### What your windowrule can and cannot override
+
+While a workspace is in canvas mode the daemon has registered its own rule for
+that workspace. The compositor applies matching windowrules in registration
+order and the last write wins; yours is declared at config load and the daemon's
+is registered at toggle time, so **the daemon's `float`, `size` and `center` win
+on canvas workspaces.** Everything else on the same rule — `border_size`,
+`rounding`, `opacity`, `no_anim`, `suppress_event`, `tag` — applies normally,
+because the daemon does not touch those.
+
+For a size the canvas rule would override, use an event instead. Events run after
+the rules have been applied:
+
+```lua
+hl.on("window.title", function(w)
+    if w ~= nil and w.class == "btop" then
+        hl.dispatch(hl.dsp.window.resize({ x = 960, y = 620 }))
+    end
+end)
+```
+
+Hyprland recommends the same technique for anything a static rule cannot express.
+To drop canvas sizing entirely, set `canvas: auto_float: false`.
 
 Windows that were already open when canvas was enabled keep the box the layout
-gave them — spawn sizing only applies to windows that open *while* canvas is
-on, which is what keeps them from landing on top of each other. The one
-exception: if you panned a window earlier, its remembered position wins, since
-that was a deliberate choice rather than something the layout picked.
+gave them — spawn sizing only applies to windows that open *while* canvas is on,
+which is what keeps them from landing on top of each other. The one exception: if
+you panned a window earlier, its remembered position wins, since that was a
+deliberate choice rather than something the layout picked.
+
+### Moving and resizing one window
+
+The canvas pans and navigates; resizing an individual window is Hyprland's own
+job, and the dispatchers are enough:
+
+```lua
+hl.bind("SUPER + SHIFT + mouse:273", function()
+    hl.dispatch(hl.dsp.window.resize({ x = 960, y = 620, relative = false }))
+end)
+```
+
+`hl.dsp.window.move({ x = ..., y = ..., window = w })` and its `resize` likewise
+take a `window` field; passing one acts on that window without changing focus,
+which is the same call the daemon makes when it pans. `relative = true` moves by
+a delta rather than to a coordinate.
+
+### Reporting what a toggle did
+
+`canvas-ctl canvas-toggle` prints `CANVAS_ON` or `CANVAS_OFF` and exits non-zero
+on failure, so a bind can say what happened:
+
+```lua
+hl.bind("SUPER + SHIFT + C", function()
+    os.execute("canvas-ctl canvas-toggle && notify-send 'Canvas on' || notify-send 'Canvas off'")
+end)
+```
 
 ## Repo overview
 
