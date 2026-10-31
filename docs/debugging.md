@@ -7,8 +7,18 @@ CANVAS_DEBUG=1 canvasd 2>&1 | tee /tmp/canvas-debug.log   # summary
 CANVAS_DEBUG=2 canvasd 2>&1 | tee /tmp/canvas-debug.log   # per-window details (class/title/at/size)
 ```
 
-Trace lines are `<seconds> EVENT key=value …`. `CANVAS_DEBUG=1` emits only
-these eight:
+Trace lines are `<seconds> EVENT key=value …`, with no logger prefix; the
+daemon's own warnings keep theirs, so the two are easy to tell apart. Values are
+written the way the daemon holds them rather than as Python literals —
+`confirmed=true`, `geo=1,2,3,4`, `addr=none` — and a string containing a space is
+quoted, so it stays one field.
+
+Two more variables shape the output. `CANVAS_DEBUG_FILTER=EDGE` keeps only events
+whose name contains the substring, which is usually what you want: the
+edge-scroll tick alone is ten lines a second. `CANVAS_DEBUG_FORMAT=json` switches
+to one JSON object per line, with `ts`, `event` and `fields`.
+
+`CANVAS_DEBUG=1` emits only these eight:
 
 - `BOOT` — daemon start, with `pid`
 - `CMD` — every IPC command with `cmd` + `result`
