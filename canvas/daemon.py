@@ -118,6 +118,7 @@ class DaemonState:
             # The exclusion predicate lives on the Navigator, which resolves it
             # for panning, edge-scroll, navigation and centering alike.
             self.navigator._pan_exclude_apps = [a.lower() for a in cfg["window_pan_excludes"]]
+            self.navigator._pan_step = cfg["pan_step"]
 
             canvas_cfg = cfg["canvas"]
             self.navigator._preserve_geometry = canvas_cfg["preserve_geometry"]
@@ -166,6 +167,10 @@ class DaemonState:
     _IPC_DISPATCH: dict[str, str] = {
         "PAN_START": "_handle_pan_start",
         "PAN_STOP": "_handle_pan_stop",
+        "PAN_LEFT": "_handle_pan_left",
+        "PAN_RIGHT": "_handle_pan_right",
+        "PAN_UP": "_handle_pan_up",
+        "PAN_DOWN": "_handle_pan_down",
         "NAV_LEFT": "_handle_nav_left",
         "NAV_RIGHT": "_handle_nav_right",
         "NAV_UP": "_handle_nav_up",
@@ -213,6 +218,22 @@ class DaemonState:
         self.baselines = {}
         debug.dbg2("PAN_STOP")
         return "PAN_OFF"
+
+    def _handle_pan_left(self) -> str:
+        self._stop_competing_modes("pan-step")
+        return self.navigator.pan_step("left")
+
+    def _handle_pan_right(self) -> str:
+        self._stop_competing_modes("pan-step")
+        return self.navigator.pan_step("right")
+
+    def _handle_pan_up(self) -> str:
+        self._stop_competing_modes("pan-step")
+        return self.navigator.pan_step("up")
+
+    def _handle_pan_down(self) -> str:
+        self._stop_competing_modes("pan-step")
+        return self.navigator.pan_step("down")
 
     def _handle_nav_left(self) -> str:
         self._stop_competing_modes("navigation")

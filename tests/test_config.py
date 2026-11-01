@@ -418,3 +418,9 @@ def test_validate_rejects_a_zero_idle_timeout():
     problems = validate({"speed": 1.0, "idle_timeout": 0})
 
     assert any("idle_timeout" in p for p in problems)
+
+
+def test_validate_rejects_a_bad_pan_step():
+    for bad in (0, -5, "big", True):
+        problems = validate({"speed": 1.0, "pan_step": bad})
+        assert any("pan_step" in p for p in problems), bad

@@ -3,6 +3,7 @@
 
 speed: 1.6
 idle_timeout: 0.5             # seconds of gesture silence before pan/edge-scroll stops
+pan_step: 100                 # px one pan-left/right/up/down command moves
 # max_speed: 50              # optional: cap per-frame cursor delta (pixels)
 
 navigation:

@@ -704,3 +704,81 @@ def test_canvas_reset_leaves_state_alone_when_it_cannot_save():
         assert nav.canvas_reset() == "ERROR:STATE_SAVE_FAILED"
 
     assert 3 in nav._floating_geos
+
+
+# --- step pan ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("direction", "expected"),
+    [
+        ("left", "x = 100, y = 0"),
+        ("right", "x = -100, y = 0"),
+        ("up", "x = 0, y = 100"),
+        ("down", "x = 0, y = -100"),
+    ],
+)
+def test_pan_step_moves_the_canvas_one_step(direction, expected):
+    """The command names where the camera goes, so left moves the windows right."""
+    ipc = MagicMock()
+    ipc.send.return_value = json.dumps([_make_window("kitty", "0x1", 0, 0, 100, 100)])
+    nav = _make_nav(ipc)
+
+    with patch.object(nav, "_get_active_workspace_id", return_value=1):
+        assert nav.pan_step(direction) == "PAN_STEP"
+
+    assert expected in ipc.eval_lua.call_args.args[0]
+
+
+def test_pan_step_uses_the_configured_step():
+    ipc = MagicMock()
+    ipc.send.return_value = json.dumps([_make_window("kitty", "0x1", 0, 0, 100, 100)])
+    nav = _make_nav(ipc)
+    nav._pan_step = 250
+
+    with patch.object(nav, "_get_active_workspace_id", return_value=1):
+        nav.pan_step("left")
+
+    assert "x = 250, y = 0" in ipc.eval_lua.call_args.args[0]
+
+
+def test_pan_step_leaves_an_excluded_window_alone():
+    ipc = MagicMock()
+    ipc.send.return_value = json.dumps([_make_window("mpv", "0x1", 0, 0, 100, 100)])
+    nav = _make_nav(ipc)
+    nav._pan_exclude_apps = ["mpv"]
+
+    with patch.object(nav, "_get_active_workspace_id", return_value=1):
+        nav.pan_step("left")
+
+    assert '["0x1"] = true' in ipc.eval_lua.call_args.args[0]
+
+
+def test_pan_step_reports_an_unknown_direction():
+    assert _make_nav().pan_step("sideways") == "ERROR:BAD_DIRECTION"
+
+
+def test_pan_step_needs_a_workspace():
+    nav = _make_nav()
+
+    with patch.object(nav, "_get_active_workspace_id", return_value=None):
+        assert nav.pan_step("left") == "ERROR:NO_WORKSPACE"
+
+
+def test_pan_step_reports_a_client_query_failure():
+    ipc = MagicMock()
+    ipc.send.side_effect = ConnectionError("gone")
+    nav = _make_nav(ipc)
+
+    with patch.object(nav, "_get_active_workspace_id", return_value=1):
+        assert nav.pan_step("left") == "ERROR:NO_WINDOWS"
+
+
+def test_pan_step_reports_a_failed_move():
+    ipc = MagicMock()
+    ipc.send.return_value = json.dumps([_make_window("kitty", "0x1", 0, 0, 100, 100)])
+    ipc.eval_lua.side_effect = RuntimeError("nope")
+    nav = _make_nav(ipc)
+
+    with patch.object(nav, "_get_active_workspace_id", return_value=1):
+        assert nav.pan_step("left") == "ERROR:MOVE_FAILED"

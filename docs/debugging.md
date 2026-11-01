@@ -46,7 +46,8 @@ included:
   one is the take-down on daemon exit. `SPAWN_RULES_REGISTER` is re-sent once a
   second while canvas mode is on, so it marks the check, not a newly created
   rule: the compositor only recreates a rule whose marker is gone.
-- `PAN_START` / `PAN_STOP` / `MODE_SWITCH` — panning and mode hand-off
+- `PAN_START` / `PAN_STOP` / `PAN_STEP` / `MODE_SWITCH` — panning, one camera
+  step, and mode hand-off
 - `CENTER_CURSOR`, `FLOATING_SNAPSHOT` — center-cursor and snapshot internals
 - `*_DETAIL` — `SNAPSHOT_CREATE_DETAIL`, `TOGGLE_ON_DETAIL`, `TOGGLE_OFF_DETAIL`,
   `STATE_LOAD_DETAIL`, `STATE_SAVE_DETAIL`, `FLOAT_START_DETAIL`, `TILE_START_LIVE`,

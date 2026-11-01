@@ -20,6 +20,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_speed": None,
     # Seconds without gesture input before pan or edge-scroll ends on its own.
     "idle_timeout": 0.5,
+    # Pixels one pan-left/right/up/down command moves the canvas.
+    "pan_step": 100,
     "navigation": {
         "cooldown": 0.2,
         "protected_apps": [
@@ -133,6 +135,10 @@ def validate(cfg: dict[str, Any]) -> list[str]:
     idle_timeout = cfg.get("idle_timeout")
     if not _is_num(idle_timeout) or idle_timeout <= 0:
         errors.append(f"idle_timeout must be a number > 0, got {idle_timeout!r}")
+
+    pan_step = cfg.get("pan_step")
+    if not isinstance(pan_step, int) or isinstance(pan_step, bool) or pan_step <= 0:
+        errors.append(f"pan_step must be an integer > 0, got {pan_step!r}")
 
     nav = cfg.get("navigation")
     if not isinstance(nav, dict):

@@ -4,6 +4,8 @@ import contextlib
 import sys
 from unittest.mock import patch
 
+import pytest
+
 from canvas.__main__ import ctl_main, daemon_main
 
 
@@ -265,3 +267,22 @@ def test_ctl_main_canvas_reset_sends_the_command():
         ctl_main()
 
     mock_send.assert_called_with("CANVAS_RESET")
+
+
+@pytest.mark.parametrize(
+    ("cmd", "sent"),
+    [
+        ("pan-left", "PAN_LEFT"),
+        ("pan-right", "PAN_RIGHT"),
+        ("pan-up", "PAN_UP"),
+        ("pan-down", "PAN_DOWN"),
+    ],
+)
+def test_ctl_main_pan_step_commands(cmd, sent):
+    with (
+        patch.object(sys, "argv", ["canvas-ctl", cmd]),
+        patch("canvas.ipc.send_command", return_value="PAN_STEP") as mock_send,
+    ):
+        ctl_main()
+
+    mock_send.assert_called_with(sent)

@@ -71,6 +71,7 @@ class Navigator:
         preserve_geometry: bool = True,
         auto_float: bool = False,
         spawn_cfg: dict[str, Any] | None = None,
+        pan_step: int = 100,
     ) -> None:
         self._ipc = ipc
         self._protected_apps = [a.lower() for a in protected_apps or []]
@@ -81,6 +82,8 @@ class Navigator:
         self._preserve_geometry = preserve_geometry
         self._auto_float = auto_float
         self._spawn_cfg = spawn_cfg or {}
+        # Pixels a pan-left/right/up/down command moves the canvas.
+        self._pan_step = pan_step
         self._last_nav_time = 0.0
         # workspace id -> snapshot of TILED windows before canvas ON.
         # Only these are tiled again on OFF, so windows that were already
@@ -1294,31 +1297,19 @@ class Navigator:
         window_class = window.get("class", "").lower()
         return any(app in window_class for app in self._protected_apps)
 
-    def _pan_to_window(
+    def _move_floating(
         self,
-        floating_windows: list[dict[str, Any]],
-        target_addr: Any,
-        center_x: int,
-        center_y: int,
-        workspace_id: int | None = None,
+        dx: int,
+        dy: int,
+        workspace_id: int | None,
         excluded: set[str] | None = None,
+        focus_addr: str | None = None,
     ) -> bool:
-        """Pan the workspace's floating windows so the target centers on monitor."""
-        target = None
-        for w in floating_windows:
-            if w["address"] == target_addr:
-                target = w
-                break
+        """Move every floating window on the workspace by a relative delta.
 
-        if target is None:
-            return False
-
-        target_cx = target["at"][0] + target["size"][0] // 2
-        target_cy = target["at"][1] + target["size"][1] // 2
-
-        dx = center_x - target_cx
-        dy = center_y - target_cy
-
+        `focus_addr` focuses one of them afterwards in the same eval, which is
+        what navigation wants. A step-pan passes none and only moves.
+        """
         safe_dx = _safe_int(dx, "dx")
         safe_dy = _safe_int(dy, "dy")
 
@@ -1339,27 +1330,84 @@ class Navigator:
             f"end\n"
         )
 
-        # Focus target by iterating floating windows and matching address
-        # (avoids Lua injection from class names)
-        if not self._is_protected(target):
-            addr = target.get("address", "")
-            if _VALID_ADDR.match(addr):
-                lua += (
-                    f"local _t = hl.get_windows({{ floating = true{ws_filter} }})\n"
-                    f"for _, w in ipairs(_t) do\n"
-                    f'  if tostring(w.address) == "{addr}" then\n'
-                    f"    _canvas_dispatch(hl.dispatch(hl.dsp.focus({{ window = w }})))\n"
-                    f"    break\n"
-                    f"  end\n"
-                    f"end\n"
-                )
+        # Focus by iterating floating windows and matching address (avoids Lua
+        # injection from class names).
+        if focus_addr is not None and _VALID_ADDR.match(focus_addr):
+            lua += (
+                f"local _t = hl.get_windows({{ floating = true{ws_filter} }})\n"
+                f"for _, w in ipairs(_t) do\n"
+                f'  if tostring(w.address) == "{focus_addr}" then\n'
+                f"    _canvas_dispatch(hl.dispatch(hl.dsp.focus({{ window = w }})))\n"
+                f"    break\n"
+                f"  end\n"
+                f"end\n"
+            )
 
         try:
             self._ipc.eval_lua(lua)
             return True
         except Exception as e:
-            log.warning("navigation pan failed: %s", e)
+            log.warning("canvas move failed: %s", e)
             return False
+
+    # The command names where the camera goes, so "left" moves the windows
+    # right. That matches nav-left, which centers a window lying to the left by
+    # moving the windows right.
+    _PAN_STEP_DELTA = {
+        "left": (1, 0),
+        "right": (-1, 0),
+        "up": (0, 1),
+        "down": (0, -1),
+    }
+
+    def pan_step(self, direction: str) -> str:
+        """Move the camera one configured step in `direction`."""
+        delta = self._PAN_STEP_DELTA.get(direction)
+        if delta is None:
+            return "ERROR:BAD_DIRECTION"
+        workspace_id = self._get_active_workspace_id()
+        if workspace_id is None:
+            return "ERROR:NO_WORKSPACE"
+        floating = self._get_floating_windows(workspace_id)
+        if floating is None:
+            return "ERROR:NO_WINDOWS"
+        excluded = {
+            str(w["address"])
+            for w in floating
+            if isinstance(w.get("address"), str) and self.excluded(w)
+        }
+        dx, dy = delta[0] * self._pan_step, delta[1] * self._pan_step
+        if not self._move_floating(dx, dy, workspace_id, excluded):
+            return "ERROR:MOVE_FAILED"
+        if debug.enabled():
+            debug.dbg2("PAN_STEP", dir=direction, dx=dx, dy=dy, ws=workspace_id)
+        return "PAN_STEP"
+
+    def _pan_to_window(
+        self,
+        floating_windows: list[dict[str, Any]],
+        target_addr: Any,
+        center_x: int,
+        center_y: int,
+        workspace_id: int | None = None,
+        excluded: set[str] | None = None,
+    ) -> bool:
+        """Pan the workspace's floating windows so the target centers on monitor."""
+        target = next((w for w in floating_windows if w["address"] == target_addr), None)
+        if target is None:
+            return False
+
+        target_cx = target["at"][0] + target["size"][0] // 2
+        target_cy = target["at"][1] + target["size"][1] // 2
+
+        addr = target.get("address", "")
+        focus_addr = None
+        if not self._is_protected(target) and isinstance(addr, str) and _VALID_ADDR.match(addr):
+            focus_addr = addr
+
+        return self._move_floating(
+            center_x - target_cx, center_y - target_cy, workspace_id, excluded, focus_addr
+        )
 
     def _get_active_workspace_id(self) -> int | None:
         try:

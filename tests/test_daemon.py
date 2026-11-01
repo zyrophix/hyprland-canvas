@@ -899,3 +899,36 @@ def test_an_ignored_edge_start_still_cancels_a_running_pan():
         assert ds.handle_ipc("EDGE_START") == "EDGE_IGNORED"
 
     assert ds.panning.pan_active is False
+
+
+def test_pan_step_stops_a_running_pan():
+    """Two movers on the same windows in one frame is what the pan baselines
+    and a step would be; the step handler clears the pan first."""
+    ds = _make_daemon_state()
+    ds.panning.start_pan()
+
+    with patch.object(ds.navigator, "pan_step", return_value="PAN_STEP") as step:
+        assert ds.handle_ipc("PAN_LEFT") == "PAN_STEP"
+
+    step.assert_called_once_with("left")
+    assert ds.panning.pan_active is False
+
+
+def test_pan_step_stops_a_running_edge_scroll():
+    ds = _make_daemon_state()
+    ds.edge_scroll.start(
+        EdgeScrollParams(
+            dragged_addr="0xabc",
+            win_x=0,
+            win_y=0,
+            win_w=100,
+            win_h=100,
+            cursor_x=50,
+            cursor_y=50,
+        )
+    )
+
+    with patch.object(ds.navigator, "pan_step", return_value="PAN_STEP"):
+        assert ds.handle_ipc("PAN_DOWN") == "PAN_STEP"
+
+    assert ds.edge_scroll.active is False

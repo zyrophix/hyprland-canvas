@@ -173,7 +173,7 @@ and without the flag the release half never runs.
 The full list lives in the CLI itself — `canvas-ctl --help` is canonical:
 
 ```bash
-canvas-ctl --help  # all 16 commands with one-line descriptions
+canvas-ctl --help  # all commands with one-line descriptions
 canvas-ctl ping    # check if daemon is running
 canvas-ctl status  # show daemon state
 canvas-ctl reload  # re-read the config file and apply it in place
@@ -208,6 +208,7 @@ All defaults are built into the daemon (`DEFAULT_CONFIG` in `canvas/config.py`) 
 ```yaml
 speed: 1.6                    # pan speed multiplier
 idle_timeout: 0.5             # seconds of gesture silence before pan/edge-scroll stops
+pan_step: 100                 # px one pan-left/right/up/down command moves
 invert:
   enabled: true               # true = grab canvas (intuitive), false = follow cursor
 edge_scroll:
