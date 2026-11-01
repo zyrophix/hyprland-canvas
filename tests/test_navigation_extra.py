@@ -662,3 +662,45 @@ def test_set_snapshot_floating_reports_a_lua_failure():
     ok = nav._set_snapshot_floating(1, {"0x1": {"at": [0, 0], "size": [10, 10]}}, floating=True)
 
     assert ok is False
+
+
+# --- canvas-reset ------------------------------------------------------------
+
+
+def test_canvas_reset_forgets_only_the_active_workspace():
+    nav = _make_nav()
+    nav._floating_geos = {
+        3: {"0x1": {"at": [1, 2], "size": [3, 4]}},
+        4: {"0x2": {"at": [5, 6], "size": [7, 8]}},
+    }
+
+    with (
+        patch.object(nav, "_get_active_workspace_id", return_value=3),
+        patch("canvas.navigation.toggle_state.save") as save,
+    ):
+        assert nav.canvas_reset() == "CANVAS_RESET"
+
+    assert 3 not in nav._floating_geos
+    assert 4 in nav._floating_geos
+    assert 3 not in save.call_args.args[0]
+    assert 4 in save.call_args.args[0]
+
+
+def test_canvas_reset_needs_a_workspace():
+    nav = _make_nav()
+
+    with patch.object(nav, "_get_active_workspace_id", return_value=None):
+        assert nav.canvas_reset() == "ERROR:NO_WORKSPACE"
+
+
+def test_canvas_reset_leaves_state_alone_when_it_cannot_save():
+    nav = _make_nav()
+    nav._floating_geos = {3: {"0x1": {"at": [1, 2], "size": [3, 4]}}}
+
+    with (
+        patch.object(nav, "_get_active_workspace_id", return_value=3),
+        patch("canvas.navigation.toggle_state.save", side_effect=ToggleStateError("disk full")),
+    ):
+        assert nav.canvas_reset() == "ERROR:STATE_SAVE_FAILED"
+
+    assert 3 in nav._floating_geos

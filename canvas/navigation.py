@@ -602,6 +602,33 @@ class Navigator:
             return "ERROR:TOGGLE_FAILED"
         return "TILED" if was_floating else "FLOATED"
 
+    def canvas_reset(self) -> str:
+        """Forget the saved canvas layout for the active workspace.
+
+        The next ON lays the windows out from the tiling boxes instead of the
+        positions remembered from the previous canvas. Only meaningful while
+        the workspace is tiled: the next OFF captures the current canvas again,
+        so a reset made in canvas mode does not survive it.
+        """
+        workspace_id = self._get_active_workspace_id()
+        if workspace_id is None:
+            return "ERROR:NO_WORKSPACE"
+
+        next_floating = dict(self._floating_geos)
+        next_floating.pop(workspace_id, None)
+        # Persist before taking it out of memory, like the toggle paths: a
+        # failed write leaves the daemon and the file agreeing on the old state.
+        try:
+            self._persist_canvas_state(self._canvas_mode_workspaces, next_floating)
+        except toggle_state.ToggleStateError as e:
+            log.warning("canvas reset state save failed: %s", e)
+            return "ERROR:STATE_SAVE_FAILED"
+
+        self._floating_geos = next_floating
+        if debug.enabled():
+            debug.dbg2("CANVAS_RESET", ws=workspace_id)
+        return "CANVAS_RESET"
+
     def _snapshot_tiled_windows(self, workspace_id: int) -> dict[str, dict[str, list[int]]] | None:
         """Snapshot of currently tiled windows on the workspace (pre-canvas state).
 

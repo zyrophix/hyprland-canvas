@@ -255,3 +255,13 @@ def test_ctl_main_rejects_json_where_it_has_no_meaning():
             raise AssertionError("should have exited")
         except SystemExit as e:
             assert e.code == 2
+
+
+def test_ctl_main_canvas_reset_sends_the_command():
+    with (
+        patch.object(sys, "argv", ["canvas-ctl", "canvas-reset"]),
+        patch("canvas.ipc.send_command", return_value="CANVAS_RESET") as mock_send,
+    ):
+        ctl_main()
+
+    mock_send.assert_called_with("CANVAS_RESET")

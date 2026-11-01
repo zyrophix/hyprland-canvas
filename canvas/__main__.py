@@ -24,6 +24,7 @@ _COMMANDS: tuple[tuple[str, str], ...] = (
     ("canvas-toggle", "toggle floating on current workspace (alias for -all)"),
     ("canvas-toggle-all", "toggle all windows on workspace (explicit)"),
     ("canvas-toggle-single", "toggle focused window only"),
+    ("canvas-reset", "forget this workspace's saved canvas layout"),
     ("toggle", "invert pan direction"),
     ("edge-start", "start edge-scroll (called by mouse bind)"),
     ("edge-stop", "stop edge-scroll (called by mouse release bind)"),

@@ -552,3 +552,23 @@ def test_a_remembered_entry_with_only_a_position_keeps_that_position():
 
     # position remembered, size the layout's business
     assert targets.last == {"0x1": {"at": [500, 600], "size": [463, 493]}}
+
+
+def test_reset_makes_the_next_on_use_the_tiling_boxes():
+    """The point of canvas-reset: after rearranging in tiling, ON lays the
+    windows out from the tiling instead of the last canvas."""
+    nav = _navigator(_ipc([_window("0x1", 17, 61, 463, 493)]))
+    _on(nav, register=False)
+    _off(nav)
+    # What the last canvas remembered, now stale after a tiling rearrange.
+    nav._floating_geos[1] = {"0x1": {"at": [500, 600], "size": [400, 300]}}
+
+    with (
+        patch.object(nav, "_get_active_workspace_id", return_value=1),
+        patch("canvas.navigation.toggle_state.save"),
+    ):
+        assert nav.canvas_reset() == "CANVAS_RESET"
+
+    _result, targets = _on(nav, register=False)
+
+    assert targets.last == {"0x1": {"at": [17, 61], "size": [463, 493]}}

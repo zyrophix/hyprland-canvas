@@ -176,6 +176,7 @@ class DaemonState:
         "TOGGLE": "_handle_toggle",
         "CANVAS_TOGGLE": "_handle_canvas_toggle",
         "CANVAS_TOGGLE_ALL": "_handle_canvas_toggle_all",
+        "CANVAS_RESET": "_handle_canvas_reset",
         "CANVAS_TOGGLE_SINGLE": "_handle_canvas_toggle_single",
         "PING": "_handle_ping",
         "STATUS": "_handle_status",
@@ -448,6 +449,11 @@ class DaemonState:
     def _handle_canvas_toggle_all(self) -> str:
         self._stop_competing_modes("canvas-toggle")
         return self.navigator.canvas_toggle_all()
+
+    def _handle_canvas_reset(self) -> str:
+        # State only: nothing on screen moves, so the competing pan/edge modes
+        # do not have to be stopped the way a toggle stops them.
+        return self.navigator.canvas_reset()
 
     def _handle_canvas_toggle_single(self) -> str:
         self._stop_competing_modes("canvas-toggle")

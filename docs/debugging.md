@@ -36,6 +36,7 @@ included:
 
 - `SNAPSHOT_CREATE` — `ws, count, addrs, preserve_geometry`
 - `TOGGLE_ON` / `TOGGLE_OFF` — `ws, count, addrs` on canvas-toggle
+- `CANVAS_RESET` — `ws`, when the saved canvas layout for a workspace is forgotten
 - `CANVAS_GEOMETRY` — on canvas ON, which windows took panned / spawn-sized / tiled geometry
 - `TILE_START` / `FLOAT_START` — `ws, targets` before Lua dispatch; `TILE_LUA`,
   `TILE_DONE` / `FLOAT_DONE` after it
