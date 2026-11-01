@@ -51,8 +51,9 @@ but does not cover the other three versions.
   (`mouse` is parsed now and is exclusive with `release`), and none of this is
   testable without a live compositor.
 - `canvas.auto_float` windowrules are registered at toggle time, not at config
-  load, so a missing `SPAWN_RULES_REGISTER` trace means the toggle did not reach
-  that code.
+  load, so a missing `SPAWN_RULES_REGISTER` trace means `auto_float` is off or
+  the toggle did not reach that code. The trace is re-sent once a second while
+  canvas mode is on, so it marks the check, not a newly created rule.
 
 ## Pointers
 

@@ -37,6 +37,12 @@ the compositor make this cheap and are the reason no event listener is needed:
   toggle state and disabled again on OFF; at startup any names left behind by
   a crash are disabled before fresh ones are registered for workspaces that are
   still in canvas mode.
+- Re-registering a rule by name is **not** a replacement: Hyprland reuses the
+  object and appends every field to its effect list again, with no
+  deduplication. The rules therefore carry a marker in the compositor's Lua
+  state, and the one-second check only registers when the marker is gone —
+  after a compositor reload, or for a fresh ON after OFF. Without the marker
+  every check would grow the rule forever.
 
 **One rule per workspace.** It matches every class, but only on the workspace it
 was registered for: without that constraint a catch-all claims windows on
@@ -63,11 +69,12 @@ Transaction details that matter:
   rolls the workspace back to floating, where the rules are still correct.
 
 **The rule engine does not survive a config reload.** `ConfigManager::reload()`
-calls `ruleEngine()->clearAllRules()` and clears its map of named rules, so a
-rule the daemon still believes in is gone and its name forgotten, with nothing
-reported. The daemon therefore re-registers on a timer while any workspace is in
-canvas mode. That is idempotent: while the rule is still live the name is known
-and `hl.window_rule` reuses the existing rule instead of adding a second.
+calls `ruleEngine()->clearAllRules()`, clears its map of named rules and
+recreates the Lua state, so a rule the daemon still believes in is gone and its
+name forgotten, with nothing reported. The daemon therefore checks once a second
+while any workspace is in canvas mode, and the marker described above tells it
+whether the compositor still holds the rules. Confirmed on 0.55.4, 0.56.2 and
+0.57.0.
 
 The OFF tile set is the snapshot taken at ON plus every window that is floating
 at OFF but was not floating at ON. Addresses already in the snapshot keep their

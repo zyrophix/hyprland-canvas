@@ -9,6 +9,11 @@ Ordering matters: the compositor applies every matching rule in registration
 order and the last write wins, so the catch-all default is registered first
 and user overrides after it.
 
+Re-registering a rule by name is not free: the compositor reuses the rule
+object and appends every field to its effect list again. Rules are therefore
+guarded by a marker kept in the compositor's Lua state and only actually
+re-created when that state was reset, which is also when the rules were lost.
+
 The compositor keeps rules in a global engine that outlives this process and
 offers no way to list them, so the names registered here are persisted next
 to the toggle state and disabled again on OFF (and at startup, as a net for
@@ -215,12 +220,34 @@ def resolve_workareas(ipc: HyprIPC) -> dict[int, Workarea]:
     return out
 
 
+# Lua global recording which rules are live in the compositor's current Lua
+# state. `hyprctl reload` recreates that state, so the table disappears exactly
+# when the rules do. See _guard() for why re-registering blindly is not safe.
+_LIVE_MARKER = "_canvas_spawn_live"
+
+
+def _guard(name: str, snippet: str) -> str:
+    """Register the rule only if the marker says it is not live already.
+
+    `hl.window_rule` reuses an existing rule by name and then appends every
+    field it is given to that rule's effect list, with no deduplication
+    (Hyprland 0.57: `LuaBindingsConfigRules.cpp` reuses the object,
+    `RuleWithEffects::addEffect` appends). Re-registering an unchanged rule
+    would therefore grow it on every pass, and the re-arm timer runs forever.
+    The marker is set after a successful registration and cleared by `disable`;
+    a compositor reload wipes the whole Lua state, which is the one event that
+    also wipes the rules.
+    """
+    key = _lua_str(name)
+    return f"if not {_LIVE_MARKER}[{key}] then\n  {snippet}\n  {_LIVE_MARKER}[{key}] = true\nend"
+
+
 def register(rules: list[tuple[str, str]], ipc: HyprIPC) -> list[str]:
     """Register rules in one IPC round trip. Returns the registered names."""
     if not rules:
         return []
-    lines = [_REGISTER_HELPER]
-    lines += [snippet for _name, snippet in rules]
+    lines = [_REGISTER_HELPER, f"{_LIVE_MARKER} = {_LIVE_MARKER} or {{}}"]
+    lines += [_guard(name, snippet) for name, snippet in rules]
     try:
         ipc.eval_lua("\n".join(lines))
     except Exception as e:
@@ -243,7 +270,13 @@ def disable(names: list[str], ipc: HyprIPC) -> bool:
     # whole batch is one eval: a name carrying a quote or a newline would abort
     # the chunk and leave every real rule in the batch enabled. _lua_str is
     # what every other interpolation on this path uses.
-    lines = [f"hl.window_rule{{ name = {_lua_str(name)}, enabled = false }}" for name in names]
+    lines = [f"{_LIVE_MARKER} = {_LIVE_MARKER} or {{}}"]
+    for name in names:
+        key = _lua_str(name)
+        lines.append(f"hl.window_rule{{ name = {key}, enabled = false }}")
+        # The rule object survives a disable, so forget it too: a later ON must
+        # register it again rather than trust a marker for a disabled rule.
+        lines.append(f"{_LIVE_MARKER}[{key}] = nil")
     try:
         ipc.eval_lua("\n".join(lines))
     except Exception as e:

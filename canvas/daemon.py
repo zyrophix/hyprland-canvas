@@ -33,10 +33,11 @@ class DaemonState:
     Makes state testable via dependency injection (mock HyprIPC, etc).
     """
 
-    # How often the spawn rules are re-registered, in seconds. Only matters
-    # between a `hyprctl reload` and the next window map; see
-    # rearm_spawn_rules_if_due.
-    _SPAWN_REARM_INTERVAL = 5.0
+    # How often the spawn rules are checked, in seconds. Re-registration is
+    # guarded by a marker in the compositor's Lua state, so a pass where nothing
+    # changed costs one eval and two queries. One second keeps the window small
+    # between a compositor reload and the rules coming back.
+    _SPAWN_REARM_INTERVAL = 1.0
 
     # A press half that dispatches `window.drag()` makes Hyprland re-run the
     # binding when the button comes up, so edge-start arrives a second time

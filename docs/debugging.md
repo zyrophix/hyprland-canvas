@@ -39,7 +39,9 @@ included:
 - `STATE_LOAD` / `STATE_SAVE` — toggle snapshot counts per workspace
 - `SPAWN_RULES_REGISTER` / `SPAWN_RULES_DISABLE` / `SPAWN_RULES_DROP` —
   compositor windowrules for `canvas.auto_float`, with the name used; the last
-  one is the take-down on daemon exit
+  one is the take-down on daemon exit. `SPAWN_RULES_REGISTER` is re-sent once a
+  second while canvas mode is on, so it marks the check, not a newly created
+  rule: the compositor only recreates a rule whose marker is gone.
 - `PAN_START` / `PAN_STOP` / `MODE_SWITCH` — panning and mode hand-off
 - `CENTER_CURSOR`, `FLOATING_SNAPSHOT` — center-cursor and snapshot internals
 - `*_DETAIL` — `SNAPSHOT_CREATE_DETAIL`, `TOGGLE_ON_DETAIL`, `TOGGLE_OFF_DETAIL`,
@@ -49,7 +51,9 @@ included:
   `STATE_LOAD_ERROR`, `STATE_SAVE_ERROR`, `SPAWN_RULES_DISABLE_ERROR`
 
 If spawn sizing seems to do nothing, run with `CANVAS_DEBUG=2` and check that
-`SPAWN_RULES_REGISTER` appears after `canvas-toggle`; if it does not,
-`canvas.auto_float` is off or the workarea could not be resolved.
+`SPAWN_RULES_REGISTER` appears; if it does not, `canvas.auto_float` is off or
+the workarea could not be resolved. The line is re-sent once a second while
+canvas mode is on, so its presence says the check ran, not that a rule was
+newly created.
 `EDGE_DISARM` with `reason=cursor_left` only disarms before the drag is
 confirmed — see [architecture.md](architecture.md#geometry-on-canvas-on).

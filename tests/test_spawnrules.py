@@ -220,6 +220,35 @@ def test_register_sends_one_batch_and_returns_names():
     code = ipc.eval_lua.call_args[0][0]
     assert "hl.window_rule" in code
     assert "set_enabled(true)" in code
+    assert "_canvas_spawn_live = _canvas_spawn_live or {}" in code
+
+
+def test_register_guards_each_rule_behind_the_live_marker():
+    """`hl.window_rule` appends fields to a reused rule instead of replacing
+    them, so an unguarded re-arm would grow the rule on every pass."""
+    ipc = _ipc({})
+    rules = build_rules({"center": True, "default": "600x400"}, 1, WORKAREA)
+
+    register(rules, ipc)
+
+    code = ipc.eval_lua.call_args[0][0]
+    assert (
+        'if not _canvas_spawn_live["canvas-spawn-ws1-default"] then\n  _canvas_spawn_reg{'
+    ) in code
+    assert '_canvas_spawn_live["canvas-spawn-ws1-default"] = true\nend' in code
+
+
+def test_register_marks_every_rule_in_the_batch():
+    ipc = _ipc({})
+    rules = build_rules({"center": True, "default": "600x400"}, 1, WORKAREA) + build_rules(
+        {"center": True, "default": "600x400"}, 2, WORKAREA
+    )
+
+    register(rules, ipc)
+
+    code = ipc.eval_lua.call_args[0][0]
+    assert code.count("if not _canvas_spawn_live[") == 2
+    assert code.count("= true\nend") == 2
 
 
 def test_register_of_nothing_does_no_ipc():
@@ -241,6 +270,8 @@ def test_register_failure_undoes_partial_batch():
     cleanup_code = ipc.eval_lua.call_args[0][0]
     assert "enabled = false" in cleanup_code
     assert "canvas-spawn-ws1-default" in cleanup_code
+    # The marker must be dropped too, or the retry would skip the rule.
+    assert '_canvas_spawn_live["canvas-spawn-ws1-default"] = nil' in cleanup_code
 
 
 def test_disable_reports_success():
@@ -249,6 +280,17 @@ def test_disable_reports_success():
     assert disable(["canvas-spawn-ws1-default"], ipc) is True
     assert "canvas-spawn-ws1-default" in ipc.eval_lua.call_args[0][0]
     assert "enabled = false" in ipc.eval_lua.call_args[0][0]
+
+
+def test_disable_clears_the_live_marker():
+    """The rule object survives a disable, so the marker must stop claiming it
+    is live or the next ON would skip registration and leave it disabled."""
+    ipc = _ipc({})
+
+    disable(["canvas-spawn-ws1-default"], ipc)
+
+    code = ipc.eval_lua.call_args[0][0]
+    assert '_canvas_spawn_live["canvas-spawn-ws1-default"] = nil' in code
 
 
 def test_disable_of_nothing_does_no_ipc():
