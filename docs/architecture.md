@@ -19,6 +19,8 @@ Key design decisions:
 - **Workspace-scoped** — pan, edge-scroll, navigation and cursor centering only move floating windows on the current workspace; other workspaces are never touched
 - **Ground-truth, direction-aware edge pan** — modeled after compositor-level implementations (driftwm, hevel): the camera assists only while a *confirmed* drag (window under cursor + focus match + moved past `grab_dead_zone`) pushes the window *toward* an edge or holds it there; pulling the window away from a boundary stops that side's assist immediately. The dragged window's real geometry is polled from Hyprland every frame — no cursor-derived guessing, so clicks on borders/gaps or holds without movement never move the camera on their own
 - **Idle timeout** (`idle_timeout`, default 0.5s) — ends a pan or edge-scroll on its own when the gesture stops producing input (cursor or dragged-window movement) for that long, covering a release event Hyprland never delivered
+- **Navigation falls back to the camera** — `nav-*` picks the nearest window in the asked direction (aligned first, then any, then wrapping to the other side); when there is nothing to navigate to that way, as when pressing up in a row, the camera moves one `pan_step` instead of jumping to an arbitrary window
+- **Step-pan** (`pan_step`, default 100 px) — `pan-left/right/up/down` move the whole canvas by one step, for keys of your choosing; it moves the view, so `pan-left` shifts the windows right
 
 ## Spawn rules (`canvas.auto_float`)
 

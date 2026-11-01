@@ -782,3 +782,15 @@ def test_pan_step_reports_a_failed_move():
 
     with patch.object(nav, "_get_active_workspace_id", return_value=1):
         assert nav.pan_step("left") == "ERROR:MOVE_FAILED"
+
+
+def test_pan_step_does_not_focus_anything():
+    """A step moves the view; changing focus is navigation's job."""
+    ipc = MagicMock()
+    ipc.send.return_value = json.dumps([_make_window("kitty", "0x1", 0, 0, 100, 100)])
+    nav = _make_nav(ipc)
+
+    with patch.object(nav, "_get_active_workspace_id", return_value=1):
+        nav.pan_step("left")
+
+    assert "dsp.focus" not in ipc.eval_lua.call_args.args[0]

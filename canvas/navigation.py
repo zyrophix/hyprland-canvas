@@ -275,29 +275,22 @@ class Navigator:
         current_bounds = self._window_bounds(current_win)
         current_center = self._window_center(current_win)
 
-        target = self._find_spatial_target(movable, current_bounds, current_center, direction)
-        # Fallback: circular index order (legacy behavior) when no spatial candidate
-        target_addr: str | None = None
-        if target is not None:
-            target_addr = target["address"]
-        else:
-            # No window in that direction spatially — cycle by index (protected-aware)
-            current_index = next(
-                (i for i, w in enumerate(movable) if w["address"] == current_addr), -1
-            )
-            if current_index != -1:
-                idx = current_index
-                for _ in range(len(movable)):
-                    if direction in ("right", "down"):
-                        idx = (idx + 1) % len(movable)
-                    else:
-                        idx = (idx - 1) % len(movable)
-                    if not self._is_protected(movable[idx]):
-                        target_addr = movable[idx]["address"]
-                        break
-
-        if target_addr is None:
+        # Nothing navigable at all is a different case from "nothing that way":
+        # with no second navigable window there is nowhere to go, so the camera
+        # must not move either. Counting navigable windows rather than all of
+        # them keeps the old no-op when every other window is protected.
+        navigable = [w for w in movable if not self._is_protected(w)]
+        if len(navigable) <= 1:
             return True
+
+        target = self._find_spatial_target(movable, current_bounds, current_center, direction)
+        if target is None:
+            # Nothing that way. Navigation used to jump to another window by
+            # index, which is not spatial: in a row, pressing up dropped you on
+            # an arbitrary window of the same row. Moving the camera one step
+            # keeps the view going where the user pointed.
+            return self._step_fallback(direction, workspace_id, excluded)
+        target_addr = target["address"]
 
         floating_updated = self._get_floating_windows(workspace_id)
         if floating_updated is None:
@@ -1382,6 +1375,16 @@ class Navigator:
         if debug.enabled():
             debug.dbg2("PAN_STEP", dir=direction, dx=dx, dy=dy, ws=workspace_id)
         return "PAN_STEP"
+
+    def _step_fallback(self, direction: str, workspace_id: int, excluded: set[str]) -> bool:
+        """Move the camera one step when navigation has no window that way."""
+        delta = self._PAN_STEP_DELTA[direction]
+        dx, dy = delta[0] * self._pan_step, delta[1] * self._pan_step
+        if not self._move_floating(dx, dy, workspace_id, excluded):
+            return False
+        if debug.enabled():
+            debug.dbg2("PAN_STEP", dir=direction, dx=dx, dy=dy, ws=workspace_id, via="nav")
+        return True
 
     def _pan_to_window(
         self,

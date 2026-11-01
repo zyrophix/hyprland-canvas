@@ -25,48 +25,43 @@ def _make_window(
     }
 
 
-def test_navigate_right_cycles():
-    """Navigate right cycles through windows, skipping protected."""
+def test_navigate_right_steps_when_nothing_is_to_the_right():
+    """A column has nothing left or right of it. Pressing right used to jump to
+    an arbitrary window of the same column by index; it steps the camera now."""
     windows = [
         _make_window("terminal", "0x1", 100, 100, 400, 300),
-        _make_window("firefox", "0x2", 600, 100, 800, 600),  # protected
         _make_window("editor", "0x3", 100, 500, 400, 300),
     ]
-
-    nav = Navigator(ipc=MagicMock(), protected_apps=["firefox"], cooldown=0.0)
+    ipc = MagicMock()
+    nav = Navigator(ipc=ipc, protected_apps=[], cooldown=0.0)
 
     with (
         patch.object(nav, "_get_active_workspace_id", return_value=1),
         patch.object(nav, "_get_floating_windows", return_value=windows),
         patch.object(nav, "_get_focused_window", return_value=windows[0]),
-        patch.object(nav, "_get_monitor_center", return_value=(960, 540)),
-        patch.object(nav, "_pan_to_window") as mock_pan,
     ):
-        nav.navigate("right")
-        mock_pan.assert_called_once()
-        called_addr = mock_pan.call_args[0][1]
-        assert called_addr == "0x3"
+        assert nav.navigate("right") is True
+
+    # The command names where the camera goes, so right moves the windows left.
+    assert "x = -100, y = 0" in ipc.eval_lua.call_args.args[0]
 
 
-def test_navigate_left_cycles():
-    """Navigate left goes to previous window."""
+def test_navigate_up_steps_when_the_row_has_nothing_above():
     windows = [
         _make_window("terminal", "0x1", 100, 100, 400, 300),
-        _make_window("editor", "0x3", 100, 500, 400, 300),
+        _make_window("editor", "0x3", 600, 100, 400, 300),
     ]
-
-    nav = Navigator(ipc=MagicMock(), protected_apps=[], cooldown=0.0)
+    ipc = MagicMock()
+    nav = Navigator(ipc=ipc, protected_apps=[], cooldown=0.0)
 
     with (
         patch.object(nav, "_get_active_workspace_id", return_value=1),
         patch.object(nav, "_get_floating_windows", return_value=windows),
-        patch.object(nav, "_get_focused_window", return_value=windows[1]),
-        patch.object(nav, "_get_monitor_center", return_value=(960, 540)),
-        patch.object(nav, "_pan_to_window") as mock_pan,
+        patch.object(nav, "_get_focused_window", return_value=windows[0]),
     ):
-        nav.navigate("left")
-        called_addr = mock_pan.call_args[0][1]
-        assert called_addr == "0x1"
+        assert nav.navigate("up") is True
+
+    assert "x = 0, y = 100" in ipc.eval_lua.call_args.args[0]
 
 
 def test_navigate_single_window_does_nothing():
@@ -94,13 +89,15 @@ def test_is_protected():
 
 
 def test_navigate_all_protected_does_nothing():
-    """When all windows are protected, navigation does nothing."""
+    """When all windows are protected, navigation does nothing — and does not
+    fall back to moving the camera, because there was nowhere to go."""
     windows = [
         _make_window("firefox", "0x1", 100, 100, 400, 300),
         _make_window("brave-browser", "0x2", 600, 100, 800, 600),
     ]
 
-    nav = Navigator(ipc=MagicMock(), protected_apps=["firefox", "brave-browser"], cooldown=0.0)
+    ipc = MagicMock()
+    nav = Navigator(ipc=ipc, protected_apps=["firefox", "brave-browser"], cooldown=0.0)
 
     with (
         patch.object(nav, "_get_active_workspace_id", return_value=1),
@@ -110,6 +107,7 @@ def test_navigate_all_protected_does_nothing():
     ):
         nav.navigate("right")
         mock_pan.assert_not_called()
+    ipc.eval_lua.assert_not_called()
 
 
 def test_navigate_cooldown_blocks_rapid_calls():
@@ -424,3 +422,40 @@ def test_preserve_geometry_false_skips_capture_and_restore():
             assert nav.canvas_toggle() == "CANVAS_OFF"
 
         assert nav._floating_geos == {}
+
+
+def test_navigate_does_not_step_past_a_protected_window():
+    """Something is to the right, it is just not a destination. That is a
+    different case from an empty direction, so the camera stays put."""
+    windows = [
+        _make_window("terminal", "0x1", 100, 100, 400, 300),
+        _make_window("firefox", "0x2", 600, 100, 400, 300),
+    ]
+    ipc = MagicMock()
+    nav = Navigator(ipc=ipc, protected_apps=["firefox"], cooldown=0.0)
+
+    with (
+        patch.object(nav, "_get_active_workspace_id", return_value=1),
+        patch.object(nav, "_get_floating_windows", return_value=windows),
+        patch.object(nav, "_get_focused_window", return_value=windows[0]),
+    ):
+        assert nav.navigate("right") is True
+
+    ipc.eval_lua.assert_not_called()
+
+
+def test_navigate_reports_a_failed_fallback_step():
+    windows = [
+        _make_window("terminal", "0x1", 100, 100, 400, 300),
+        _make_window("editor", "0x3", 100, 500, 400, 300),
+    ]
+    ipc = MagicMock()
+    ipc.eval_lua.side_effect = RuntimeError("nope")
+    nav = Navigator(ipc=ipc, protected_apps=[], cooldown=0.0)
+
+    with (
+        patch.object(nav, "_get_active_workspace_id", return_value=1),
+        patch.object(nav, "_get_floating_windows", return_value=windows),
+        patch.object(nav, "_get_focused_window", return_value=windows[0]),
+    ):
+        assert nav.navigate("right") is False

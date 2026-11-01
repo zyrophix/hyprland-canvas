@@ -93,7 +93,7 @@ def test_navigate_ignores_an_excluded_window_as_a_target():
     nav = _make_nav()
     current = _win("0x1", at=[0, 0])
     fullscreen = _win("0x2", at=[400, 0], fullscreen=2)
-    other = _win("0x3", at=[0, 400])
+    other = _win("0x3", at=[800, 0])
 
     with (
         patch.object(nav, "_get_active_workspace_id", return_value=1),

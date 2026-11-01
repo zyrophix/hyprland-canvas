@@ -30,7 +30,8 @@ not to, so expect breaking changes.
 | --- | --- | --- |
 | Pan canvas | SUPER+SHIFT+LMB | Drag to pan all floating windows |
 | Edge-scroll | SUPER+LMB | Drag a floating window toward the screen edge — camera follows (engages only for a confirmed drag of the window under the cursor) |
-| Navigate | SUPER+SHIFT+Arrows | Spatial jump to nearest window in direction (up/down/left/right), auto-pan to center |
+| Navigate | SUPER+SHIFT+Arrows | Spatial jump to nearest window in direction (up/down/left/right), auto-pan to center; with none that way, the camera steps instead |
+| Step-pan | your own keys → `canvas-ctl pan-left/right/up/down` | Move the whole canvas one `pan_step` (100 px by default) in that direction |
 | Center under cursor | SUPER+MMB | Center the canvas on the topmost floating window under the mouse cursor without changing focus |
 | Canvas toggle | SUPER+SHIFT+C | Toggle all windows on workspace to/from floating, keeping each window exactly where and how big it was |
 | Window sizing | on canvas enable | Give windows that open while canvas is on a size — one default, on by default (see [Sizing windows that open during canvas](#sizing-windows-that-open-during-canvas)) |
