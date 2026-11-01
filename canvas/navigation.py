@@ -754,12 +754,16 @@ class Navigator:
             if workarea is None:
                 # Expected rather than exceptional: a workspace with no windows
                 # is not in j/workspaces, so there is no monitor to take a
-                # workarea from. It gets its rule once something opens on it, so
-                # the line is worth printing once per workspace — this runs on a
-                # timer, and repeating it every interval is noise.
+                # workarea from. It gets its rule once something opens on it.
+                # Informational, once per workspace — this runs on a timer, and
+                # repeating it every interval is noise.
                 unresolved.add(ws_id)
                 if ws_id not in self._unresolved_spawn_ws:
-                    log.warning("spawn rules: no workarea for workspace %s", ws_id)
+                    log.info(
+                        "spawn rules: workspace %s is in canvas mode but has no "
+                        "windows yet; its rule waits",
+                        ws_id,
+                    )
                 continue
             try:
                 built = spawnrules.build_rules(self._spawn_cfg, ws_id, workarea)

@@ -458,12 +458,12 @@ def test_rearm_reports_a_missing_workarea_once(caplog):
     )
     nav._canvas_mode_workspaces = {3: {}}
 
-    with caplog.at_level(logging.WARNING, logger="canvas.navigation"):
+    with caplog.at_level(logging.INFO, logger="canvas.navigation"):
         nav.rearm_spawn_rules()
         nav.rearm_spawn_rules()
         nav.rearm_spawn_rules()
 
-    reported = [r.getMessage() for r in caplog.records if "no workarea" in r.getMessage()]
+    reported = [r.getMessage() for r in caplog.records if "its rule waits" in r.getMessage()]
     assert len(reported) == 1, reported
 
 
@@ -481,14 +481,14 @@ def test_rearm_reports_again_after_the_workarea_disappears(caplog):
     nav._canvas_mode_workspaces = {3: {}}
     ipc = nav._ipc
 
-    with caplog.at_level(logging.WARNING, logger="canvas.navigation"):
+    with caplog.at_level(logging.INFO, logger="canvas.navigation"):
         nav.rearm_spawn_rules()  # absent -> reported
         workspaces.append({"id": 3, "monitorID": 0})
         nav.rearm_spawn_rules()  # present -> registered, mark cleared
         workspaces.clear()
         nav.rearm_spawn_rules()  # absent again -> reported again
 
-    reported = [r.getMessage() for r in caplog.records if "no workarea" in r.getMessage()]
+    reported = [r.getMessage() for r in caplog.records if "its rule waits" in r.getMessage()]
     assert len(reported) == 2, reported
     assert nav._spawn_rules == {3: ["canvas-spawn-ws3-default"]}
     assert ipc.eval_lua.call_count == 1
@@ -504,12 +504,12 @@ def test_rehydrate_starts_the_suppression_afresh(caplog):
     nav._canvas_mode_workspaces = {3: {}}
 
     with (
-        caplog.at_level(logging.WARNING, logger="canvas.navigation"),
+        caplog.at_level(logging.INFO, logger="canvas.navigation"),
         patch("canvas.navigation.toggle_state.save"),
     ):
         nav.rearm_spawn_rules()  # reported once
         nav.rearm_spawn_rules()  # suppressed
         nav.rehydrate_spawn_rules()  # a reload re-reports
 
-    reported = [r.getMessage() for r in caplog.records if "no workarea" in r.getMessage()]
+    reported = [r.getMessage() for r in caplog.records if "its rule waits" in r.getMessage()]
     assert len(reported) == 2, reported
