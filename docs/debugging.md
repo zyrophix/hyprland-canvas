@@ -60,3 +60,28 @@ canvas mode is on, so its presence says the check ran, not that a rule was
 newly created.
 `EDGE_DISARM` with `reason=cursor_left` only disarms before the drag is
 confirmed — see [architecture.md](architecture.md#geometry-on-canvas-on).
+
+## Reading a JSON run
+
+`CANVAS_DEBUG_FORMAT=json` makes the whole stream one object per line, so a
+recorded run can be queried instead of paged through. These fields are
+diagnostic, not an interface: they may change between releases. The recipes
+assume every line in the file is JSON — output printed outside logging, or a
+crash, would make `jq` stop at that line.
+
+These are the questions that come up most:
+
+```bash
+# how many of each event
+jq -s 'map(select(has("event"))) | group_by(.event) | map({event: .[0].event, n: length})' run.jsonl
+
+# why edge-scroll sessions ended
+jq -r 'select(.event == "EDGE_DISARM") | .fields.reason' run.jsonl | sort | uniq -c
+
+# how often the drag bind's release re-run was caught
+jq -r 'select(.event == "EDGE_START_DECISION" and .fields.verdict == "DUPLICATE_AFTER_STOP") | .ts' run.jsonl | wc -l
+```
+
+The last one is how the guard's 100 ms window is checked against real gestures
+rather than guessed. The daemon's own records have `level`, `logger` and
+`message` instead of `event`, which is why the first recipe filters on `event`.

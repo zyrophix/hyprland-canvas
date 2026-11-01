@@ -342,6 +342,52 @@ hl.bind("SUPER + SHIFT + C", function()
 end)
 ```
 
+### Status bar
+
+Waybar wants its own `{text, tooltip, class}` shape, so the object
+`canvas-ctl status --json` returns needs one small script. The trace JSON is
+diagnostic and may change freely; these fields are the more deliberate surface,
+though the project as a whole still expects breaking changes between releases.
+
+Make `~/.config/waybar/canvas-status.sh` executable:
+
+```sh
+#!/bin/sh
+out=$(canvas-ctl status --json 2>/dev/null) || {
+    printf '%s\n' '{"text":"canvas ?","class":"off","tooltip":"status unavailable"}'
+    exit 0
+}
+printf '%s' "$out" | jq -c '{
+    text: (if (.canvas_workspaces | length) > 0 then "canvas " + (.canvas_workspaces | map(tostring) | join(",")) else "canvas off" end),
+    tooltip: ("ws " + ((.workspace // "?") | tostring) + " · " + ((.floating // "?") | tostring) + " floating"),
+    class: (if (.canvas_workspaces | length) > 0 then "on" else "off" end)
+}'
+```
+
+```bash
+chmod +x ~/.config/waybar/canvas-status.sh
+```
+
+Then list `custom/canvas` in `modules-right` (or `modules-left` /
+`modules-center`) and define it:
+
+```json
+"custom/canvas": {
+    "exec": "~/.config/waybar/canvas-status.sh",
+    "return-type": "json",
+    "interval": 2,
+    "format": "{}",
+    "tooltip": true,
+    "on-click": "canvas-ctl canvas-toggle"
+}
+```
+
+It renders `canvas 3` when workspace 3 is in canvas mode and `canvas off`
+otherwise; the `on` and `off` classes exist to be styled. Two seconds is
+plenty, because one `status` is two IPC queries. `jq` has to be installed: if it
+is missing the script prints nothing and Waybar hides the module rather than
+showing an error.
+
 ## Repo overview
 
 - `canvas/` — daemon source: `hypr.py` (IPC), `panning.py` (cursor polling, pan
