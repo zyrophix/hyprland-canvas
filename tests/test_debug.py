@@ -230,3 +230,103 @@ def test_json_mode_never_writes_non_json_numbers(monkeypatch):
     # NaN would be invalid JSON and break jq on the line.
     payload = json_module.loads(mock_log.debug.call_args[0][0])
     assert payload["fields"]["speed"] == "nan"
+
+
+def test_json_mode_formats_the_daemon_log_as_json(monkeypatch):
+    """The trace is JSON in `_emit`; the root handler has to match, or a
+    stream piped into jq breaks on the first warning."""
+    import json as json_module
+    import logging as logging_module
+
+    monkeypatch.setenv("CANVAS_DEBUG", "1")
+    monkeypatch.setenv("CANVAS_DEBUG_FORMAT", "json")
+    debug.enable_from_env()
+
+    record = logging_module.LogRecord(
+        "canvas.navigation", logging_module.WARNING, "", 0, "spawn rules: %s", ("x",), None
+    )
+    payload = json_module.loads(debug.root_handler().format(record))
+
+    assert payload["level"] == "WARNING"
+    assert payload["logger"] == "canvas.navigation"
+    assert payload["message"] == "spawn rules: x"
+    assert isinstance(payload["ts"], float)
+
+
+def test_text_mode_keeps_the_logger_name():
+    import logging as logging_module
+
+    record = logging_module.LogRecord(
+        "canvas.navigation", logging_module.WARNING, "", 0, "spawn rules: %s", ("x",), None
+    )
+
+    assert debug.root_handler().format(record) == "canvas.navigation: spawn rules: x"
+
+
+def test_json_mode_works_without_tracing(monkeypatch):
+    """`CANVAS_DEBUG_FORMAT` asks for machine-readable output on its own; the
+    daemon's own records are all it would contain."""
+    import json as json_module
+    import logging as logging_module
+
+    monkeypatch.delenv("CANVAS_DEBUG", raising=False)
+    monkeypatch.setenv("CANVAS_DEBUG_FORMAT", "json")
+    debug.enable_from_env()
+
+    record = logging_module.LogRecord(
+        "canvas", logging_module.INFO, "", 0, "loading config...", None, None
+    )
+    payload = json_module.loads(debug.root_handler().format(record))
+
+    assert payload["message"] == "loading config..."
+    assert payload["ts"] >= 0.0
+    assert debug.enabled() is False
+
+
+def test_an_unknown_object_renders_as_its_str(monkeypatch):
+    monkeypatch.setenv("CANVAS_DEBUG", "1")
+    debug.enable_from_env()
+    marker = object()
+
+    with patch("canvas.debug.log") as mock_log:
+        debug.dbg("T", obj=marker)
+
+    assert f"obj={marker}" in mock_log.debug.call_args[0][0]
+
+
+def test_an_unknown_object_stays_a_string_in_json(monkeypatch):
+    import json as json_module
+
+    monkeypatch.setenv("CANVAS_DEBUG", "1")
+    monkeypatch.setenv("CANVAS_DEBUG_FORMAT", "json")
+    debug.enable_from_env()
+    marker = object()
+
+    with patch("canvas.debug.log") as mock_log:
+        debug.dbg("T", obj=marker)
+
+    payload = json_module.loads(mock_log.debug.call_args[0][0])
+    assert payload["fields"]["obj"] == str(marker)
+
+
+def test_json_mode_carries_an_exception_traceback(monkeypatch):
+    """A logged crash must not become a bare line with the traceback dropped."""
+    import json as json_module
+    import logging as logging_module
+
+    monkeypatch.setenv("CANVAS_DEBUG", "1")
+    monkeypatch.setenv("CANVAS_DEBUG_FORMAT", "json")
+    debug.enable_from_env()
+
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        import sys
+
+        exc_info = sys.exc_info()
+    record = logging_module.LogRecord(
+        "canvas", logging_module.ERROR, "", 0, "failed", None, exc_info
+    )
+    payload = json_module.loads(debug.root_handler().format(record))
+
+    assert "ValueError: boom" in payload["exc"]

@@ -714,9 +714,12 @@ def run() -> None:
     debug.enable_from_env()
     logging.basicConfig(
         level=logging.DEBUG if debug.enabled() else logging.INFO,
-        format="%(name)s: %(message)s",
+        handlers=[debug.root_handler()],
+        # Own the whole stream: an inherited handler would keep printing text
+        # alongside the JSON records.
+        force=True,
     )
-    # Trace lines are formatted without the logger name; warnings keep it.
+    # Trace lines are formatted without the logger name; see debug.configure().
     debug.configure()
     if debug.enabled():
         debug.dbg("BOOT", pid=os.getpid())

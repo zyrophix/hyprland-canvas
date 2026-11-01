@@ -6,6 +6,7 @@ Entry points (see pyproject.toml [project.scripts]):
 """
 
 import argparse
+import logging
 import sys
 
 from canvas import version
@@ -41,15 +42,19 @@ def daemon_main(argv: list[str] | None = None) -> None:
     from canvas.config import ConfigError
     from canvas.daemon import run
 
+    # `run()` sets logging up before either of these can be raised, so the
+    # message goes through the same formatter as everything else — including
+    # the JSON one, which a `print` would break.
+    log = logging.getLogger("canvas")
     try:
         run()
     except ConfigError as exc:
-        print(f"Invalid configuration:\n{exc}", file=sys.stderr)
+        log.error("invalid configuration:\n%s", exc)
         sys.exit(1)
     except RuntimeError as exc:
         # An unusable runtime directory, for instance one another local user
         # owns. Refusing to start beats trusting it.
-        print(f"{exc}", file=sys.stderr)
+        log.error("%s", exc)
         sys.exit(1)
 
 

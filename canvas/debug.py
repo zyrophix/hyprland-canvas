@@ -9,7 +9,9 @@ Three environment variables shape the output:
 - `CANVAS_DEBUG_FILTER` — keep only events whose name contains this substring
   (case-insensitive), which is how the 10 Hz edge-scroll tick stays out of the
   way.
-- `CANVAS_DEBUG_FORMAT=json` — one JSON object per line instead of the text form.
+- `CANVAS_DEBUG_FORMAT=json` — the whole stream becomes one JSON object per
+  line, trace and the daemon's own records alike, so it can be piped straight
+  into `jq`. `ts` is seconds since tracing was set up, not a wall clock.
 
 Values are rendered rather than repr'd: tuples as `1,2,3,4`, booleans as
 `true`/`false`. A line is meant to be read and grepped by a person, not parsed
@@ -41,6 +43,43 @@ def level() -> int:
     return _level
 
 
+def _elapsed() -> float:
+    """Seconds since tracing was set up, or 0.0 when it never was."""
+    return time.monotonic() - _start if _start else 0.0
+
+
+class JsonFormatter(logging.Formatter):
+    """One JSON object per record, shaped like a trace line.
+
+    Only the trace goes through `_emit`; the daemon's own records go through the
+    root handler, and a stream meant for `jq` would break on a bare
+    `canvas.navigation: ...` line. This makes the whole stream parseable.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, object] = {
+            "ts": round(_elapsed(), 3),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            # Dropping it silently would turn a logged crash into a bare line.
+            payload["exc"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def root_handler() -> logging.Handler:
+    """The handler `run()` hands to `logging.basicConfig`."""
+    handler = logging.StreamHandler()
+    if _json:
+        handler.setFormatter(JsonFormatter())
+    else:
+        # Warnings carry the logger name; the trace does not. See configure().
+        handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
+    return handler
+
+
 def configure() -> None:
     """Give this logger a bare handler so trace lines carry no logger name.
 
@@ -70,7 +109,9 @@ def enable_from_env() -> None:
         _level = 1
     _filter = os.environ.get("CANVAS_DEBUG_FILTER", "").upper()
     _json = os.environ.get("CANVAS_DEBUG_FORMAT", "").lower() == "json"
-    if _level:
+    # A base for elapsed timestamps: the trace uses it, and so does the JSON
+    # formatter, which works even when tracing itself is off.
+    if _level or _json:
         _start = time.monotonic()
 
 
@@ -128,7 +169,7 @@ def _jsonable(value: object) -> Any:
 def _emit(event: str, fields: dict[str, object]) -> None:
     if _filter and _filter not in event:
         return
-    elapsed = time.monotonic() - _start
+    elapsed = _elapsed()
     if _json:
         payload = {"ts": round(elapsed, 3), "event": event, "fields": _jsonable(fields)}
         log.debug(json.dumps(payload, sort_keys=False))

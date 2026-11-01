@@ -16,8 +16,11 @@ quoted, so it stays one field.
 Two more variables shape the output. `CANVAS_DEBUG_FILTER=EDGE` keeps only events
 whose name contains the substring, ignoring case, which is usually what you
 want: the edge-scroll tick alone is ten lines a second.
-`CANVAS_DEBUG_FORMAT=json` switches to one JSON object per line, with `ts`,
-`event` and `fields`.
+`CANVAS_DEBUG_FORMAT=json` turns the whole stream into one JSON object per line,
+so it can be piped straight into `jq`: trace lines carry `ts`, `event` and
+`fields`, and the daemon's own records `ts`, `level`, `logger` and `message`.
+`ts` is seconds since the daemon set tracing up, not a wall clock, so it is for
+ordering and correlation, not for timestamps on their own.
 
 `CANVAS_DEBUG=1` emits only these eight:
 

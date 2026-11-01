@@ -203,7 +203,7 @@ def test_version_falls_back_to_the_package_attribute(capsys):
     assert __version__ in capsys.readouterr().out
 
 
-def test_daemon_main_reports_an_invalid_configuration(capsys):
+def test_daemon_main_reports_an_invalid_configuration(caplog):
     from canvas.config import ConfigError
 
     with patch("canvas.daemon.run", side_effect=ConfigError("speed must be a number")):
@@ -213,10 +213,10 @@ def test_daemon_main_reports_an_invalid_configuration(capsys):
         except SystemExit as e:
             assert e.code == 1
 
-    assert "speed must be a number" in capsys.readouterr().err
+    assert "speed must be a number" in caplog.text
 
 
-def test_daemon_main_reports_an_unusable_runtime_directory(capsys):
+def test_daemon_main_reports_an_unusable_runtime_directory(caplog):
     """Another local user owning /tmp/user/<uid> must stop the daemon, loudly."""
     with patch("canvas.daemon.run", side_effect=RuntimeError("owned by uid 0")):
         try:
@@ -225,7 +225,7 @@ def test_daemon_main_reports_an_unusable_runtime_directory(capsys):
         except SystemExit as e:
             assert e.code == 1
 
-    assert "owned by uid 0" in capsys.readouterr().err
+    assert "owned by uid 0" in caplog.text
 
 
 def test_ctl_main_status_sends_the_plain_command():

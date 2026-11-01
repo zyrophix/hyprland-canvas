@@ -137,6 +137,8 @@ def _drive(
         enter(patch("canvas.daemon.acquire_singleton"))
         enter(patch("canvas.daemon.time.sleep"))
         enter(patch("canvas.daemon.debug.enable_from_env"))
+        basic_config = enter(patch("canvas.daemon.logging.basicConfig"))
+        root_handler = enter(patch("canvas.daemon.debug.root_handler", return_value=MagicMock()))
         enter(patch("canvas.daemon.debug.configure"))
         enter(patch("canvas.daemon.debug.enabled", return_value=tracing))
         dbg = enter(patch("canvas.daemon.debug.dbg"))
@@ -160,6 +162,8 @@ def _drive(
             dbg=dbg,
             load=load,
             apply_config=apply_config,
+            basic_config=basic_config,
+            root_handler=root_handler,
             source=source,
             stop=stop,
             ipc_server=ipc_server,
@@ -297,3 +301,13 @@ def test_run_reads_and_records_the_resolved_config_file():
 
     handle.load.assert_called_once_with(handle.source)
     assert handle.apply_config.call_args.args[1] == handle.source
+
+
+def test_run_gives_the_root_logger_the_handler_debug_builds():
+    """`run()` has to pass the handler itself, not a format string: the JSON
+    formatter is the handler's, and a format string cannot express it."""
+    handle = _drive(_FakePanning([False], []), _FakeEdgeScroll([False], []))
+
+    handlers = handle.basic_config.call_args.kwargs["handlers"]
+    assert handlers == [handle.root_handler.return_value]
+    assert handle.basic_config.call_args.kwargs["force"] is True
