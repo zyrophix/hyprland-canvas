@@ -254,7 +254,7 @@ def test_approach_within_ramp_gives_proportional_speed():
     # now push window so its right edge is 10px from boundary (dist=10 < ramp=50)
     es.update_geometry("0xabc", 1410, 390, 500, 300, 1410 + 250, 390 + 150)
     dx, _ = es.consume_delta()
-    expected = -int(round(20.0 * ((50 - 10) / 50)))  # progress 0.8
+    expected = -round(20.0 * ((50 - 10) / 50))  # progress 0.8
     assert dx == expected
 
 

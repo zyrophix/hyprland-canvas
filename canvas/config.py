@@ -59,7 +59,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge override into base. Override wins on conflicts."""
     result = copy.deepcopy(base)
     for key, value in override.items():

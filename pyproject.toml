@@ -24,13 +24,16 @@ addopts = "--cov=canvas --cov-fail-under=80"
 line-length = 99
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "C4", "RET", "TC", "ARG"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use fixtures for their side effects and stubs whose parameters must
+# match the signature they stand in for, so an unused argument is not a smell.
+"tests/*" = ["ARG001", "ARG002", "ARG005"]
 
 [tool.mypy]
 python_version = "3.12"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
+strict = true
 
 [dependency-groups]
 dev = [

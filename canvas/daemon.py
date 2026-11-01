@@ -7,8 +7,10 @@ import re
 import signal
 import threading
 import time
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from canvas import debug, version
 from canvas.config import ConfigError, load, resolve_path
@@ -164,7 +166,7 @@ class DaemonState:
             log.debug("get active workspace failed: %s", e)
             return None
 
-    _IPC_DISPATCH: dict[str, str] = {
+    _IPC_DISPATCH: ClassVar[dict[str, str]] = {
         "PAN_START": "_handle_pan_start",
         "PAN_STOP": "_handle_pan_stop",
         "PAN_LEFT": "_handle_pan_left",

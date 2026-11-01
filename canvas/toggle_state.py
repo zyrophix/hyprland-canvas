@@ -208,10 +208,8 @@ def save(state: State, path: str | None = None) -> None:
             tiled = sections.get("tiled", {})
             serializable[str(ws)] = {
                 "active": bool(sections.get("active", bool(tiled))),
-                "tiled": {addr: geo for addr, geo in sorted(tiled.items())},
-                "floating": {
-                    addr: geo for addr, geo in sorted(sections.get("floating", {}).items())
-                },
+                "tiled": dict(sorted(tiled.items())),
+                "floating": dict(sorted(sections.get("floating", {}).items())),
                 "pre_floating": sorted(set(sections.get("pre_floating", []))),
                 "spawn_rules": list(sections.get("spawn_rules", [])),
             }

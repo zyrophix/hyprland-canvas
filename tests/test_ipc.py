@@ -57,7 +57,7 @@ def test_ipc_toggle_returns_state(tmp_path):
         if cmd == "TOGGLE":
             inverted[0] = not inverted[0]
             return "INVERTED" if inverted[0] else "NORMAL"
-        elif cmd == "STATUS":
+        if cmd == "STATUS":
             return "INVERTED" if inverted[0] else "NORMAL"
         return "OK"
 

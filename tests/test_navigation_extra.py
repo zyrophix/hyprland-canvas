@@ -105,7 +105,7 @@ def test_get_monitor_center_fallback_first():
         ]
     )
     nav = _make_nav(ipc)
-    cx, cy = nav._get_monitor_center()
+    cx, _ = nav._get_monitor_center()
     assert cx == 2880
 
 

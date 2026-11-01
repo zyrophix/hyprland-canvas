@@ -142,7 +142,7 @@ class IpcServer:
 
     def __init__(self, sock_path: str | None = None, handler: Callable[[str], str] | None = None):
         self.sock_path = sock_path or _default_socket_path()
-        self._handler = handler or (lambda cmd: "OK")
+        self._handler = handler or (lambda _cmd: "OK")
         self._stop_event = threading.Event()
         self._server_socket: socket.socket | None = None
 

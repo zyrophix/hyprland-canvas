@@ -151,7 +151,7 @@ class PanningState:
         absolute moves, so drift cannot accumulate.
         """
         with self._lock:
-            return int(round(self._total_dx)), int(round(self._total_dy))
+            return round(self._total_dx), round(self._total_dy)
 
 
 class EdgeScrollState:
@@ -249,7 +249,7 @@ class EdgeScrollState:
     def pending_preview(self) -> tuple[int, int]:
         """Rounded pending delta without consuming (for diagnostics)."""
         with self._lock:
-            return int(round(self._pending_dx)), int(round(self._pending_dy))
+            return round(self._pending_dx), round(self._pending_dy)
 
     @property
     def last_geometry(self) -> tuple[int, int, int, int] | None:
@@ -457,7 +457,7 @@ class EdgeScrollState:
             if self.max_speed is not None:
                 dx = max(-self.max_speed, min(self.max_speed, dx))
                 dy = max(-self.max_speed, min(self.max_speed, dy))
-            return -int(round(dx)), -int(round(dy))
+            return -round(dx), -round(dy)
 
     def check_idle_timeout(self) -> bool:
         """Auto-stop if the drag has shown no activity for `idle_timeout`."""

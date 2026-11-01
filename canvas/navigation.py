@@ -4,7 +4,7 @@ import json
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 from canvas import debug, spawnrules, toggle_state
 from canvas.hypr import LUA_DISPATCH_HELPER, HyprIPC
@@ -636,7 +636,7 @@ class Navigator:
             resp = self._ipc.send("j/clients")
             clients: list[dict[str, Any]] = json.loads(resp)
             snap: dict[str, dict[str, list[int]]] = {}
-            debug_details: dict[str, dict[str, Any]] = {} if debug.level() >= 2 else {}  # type: ignore[assignment]
+            debug_details: dict[str, dict[str, Any]] = {}
             for w in clients:
                 if w.get("floating"):
                     continue
@@ -1346,7 +1346,7 @@ class Navigator:
     # The command names where the camera goes, so "left" moves the windows
     # right. That matches nav-left, which centers a window lying to the left by
     # moving the windows right.
-    _PAN_STEP_DELTA = {
+    _PAN_STEP_DELTA: ClassVar[dict[str, tuple[int, int]]] = {
         "left": (1, 0),
         "right": (-1, 0),
         "up": (0, 1),
