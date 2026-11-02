@@ -35,17 +35,17 @@ Everything else needs `CANVAS_DEBUG=2`, which is a superset — level 1 output i
 included:
 
 - `SNAPSHOT_CREATE` — `ws, count, addrs, preserve_geometry`
-- `TOGGLE_ON` / `TOGGLE_OFF` — `ws, count, addrs` on canvas-toggle
+- `TOGGLE_ON` / `TOGGLE_OFF` — `ws, count, addrs`, and `preserve_geometry` on ON
 - `CANVAS_RESET` — `ws`, when the saved canvas layout for a workspace is forgotten
 - `CANVAS_GEOMETRY` — on canvas ON, which windows took panned / spawn-sized / tiled geometry
-- `TILE_START` / `FLOAT_START` — `ws, targets` before Lua dispatch; `TILE_LUA`,
-  `TILE_DONE` / `FLOAT_DONE` after it
+- `TILE_START` / `FLOAT_START` — the windows a batch will move, before it runs;
+  `TILE_LUA`, `TILE_DONE` / `FLOAT_DONE` after it
 - `STATE_LOAD` / `STATE_SAVE` — toggle snapshot counts per workspace
 - `SPAWN_RULES_REGISTER` / `SPAWN_RULES_DISABLE` / `SPAWN_RULES_DROP` —
-  compositor windowrules for `canvas.auto_float`, with the name used; the last
-  one is the take-down on daemon exit. `SPAWN_RULES_REGISTER` is re-sent once a
-  second while canvas mode is on, so it marks the check, not a newly created
-  rule: the compositor only recreates a rule whose marker is gone.
+  compositor windowrules for `canvas.auto_float`, with the names and count; the
+  last one is the take-down on daemon exit. `SPAWN_RULES_REGISTER` is re-sent
+  once a second while canvas mode is on, so it marks the check, not a newly
+  created rule: the compositor only recreates a rule whose marker is gone.
 - `PAN_START` / `PAN_STOP` / `PAN_STEP` / `MODE_SWITCH` — panning, one camera
   step, and mode hand-off
 - `CENTER_CURSOR`, `FLOATING_SNAPSHOT` — center-cursor and snapshot internals

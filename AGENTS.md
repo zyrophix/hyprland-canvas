@@ -29,8 +29,9 @@ but does not cover the other three versions.
   subject is not enough.
 - Release bodies are edited with `gh release edit`, after saving the current one
   with `gh release view <tag> --json body`.
-- The version lives in three places: `canvas/__init__.py`, `pyproject.toml`, and
-  that release's heading in `CHANGELOG.md`. The first is the fallback
+- The version lives in four places: `canvas/__init__.py`, `pyproject.toml`,
+  `packaging/arch/PKGBUILD` (`pkgver`, which its `source` also uses as the tag),
+  and that release's heading in `CHANGELOG.md`. The first is the fallback
   `canvasd --version` uses when the package is not installed as metadata, so
   missing it leaves the binary reporting the release before.
 - Config defaults live in `DEFAULT_CONFIG` in `canvas/config.py`. The repo's
