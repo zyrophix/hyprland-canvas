@@ -147,6 +147,15 @@ hl.bind("SUPER + SHIFT + down", hl.dsp.exec_cmd("canvas-ctl nav-down"))
 hl.bind("SUPER + SHIFT + C", hl.dsp.exec_cmd("canvas-ctl canvas-toggle"))
 hl.bind("SUPER + SHIFT + V", hl.dsp.exec_cmd("canvas-ctl canvas-toggle-single"))
 hl.bind("SUPER + SHIFT + G", hl.dsp.exec_cmd("canvas-ctl toggle"))
+
+-- Optional, on keys of your choosing. Step-pan moves the whole canvas one
+-- pan_step; the reset forgets the saved layout and turns canvas on, so the
+-- workspace comes back in the tiled arrangement.
+hl.bind("SUPER + CTRL + left", hl.dsp.exec_cmd("canvas-ctl pan-left"))
+hl.bind("SUPER + CTRL + right", hl.dsp.exec_cmd("canvas-ctl pan-right"))
+hl.bind("SUPER + CTRL + up", hl.dsp.exec_cmd("canvas-ctl pan-up"))
+hl.bind("SUPER + CTRL + down", hl.dsp.exec_cmd("canvas-ctl pan-down"))
+hl.bind("SUPER + CTRL + C", hl.dsp.exec_cmd("canvas-ctl canvas-reset && canvas-ctl canvas-toggle"))
 ```
 
 A bind whose handler does one thing passes the dispatcher straight to
