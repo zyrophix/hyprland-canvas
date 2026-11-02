@@ -1,12 +1,24 @@
 # Canvas — Hyprland Infinite Desktop configuration
 # Copy to ~/.config/canvas/config.yml and customize
 
+# --- Pan ---
 idle_timeout: 0.5             # seconds of gesture silence before pan/edge-scroll stops
 pan_step: 100                 # px one pan-left/right/up/down command moves
+invert:
+  enabled: true               # true = the canvas follows the cursor, false = the other way
 
+# --- Edge-scroll ---
+edge_scroll:
+  enabled: true               # auto-pan when a dragged window passes the screen edge
+  ramp_distance: 50           # px of overflow to reach full speed
+  speed: 20.0                 # max px/frame at full overflow (~1200 px/s at 60fps)
+  grab_dead_zone: 5           # px the window must move before the camera engages
+  # max_speed: 30             # optional: cap the per-frame edge-scroll delta
+
+# --- Navigation ---
 navigation:
-  cooldown: 0.2              # seconds between navigation steps
-  protected_apps:             # these apps won't steal focus during navigation
+  cooldown: 0.2               # seconds between navigation commands
+  protected_apps:             # windows navigation will not jump to
     - brave-browser
     - chromium
     - chromium-browser
@@ -18,26 +30,15 @@ navigation:
     - opera
     - microsoft-edge
 
-invert:
-  enabled: true               # true = grab canvas (intuitive), false = follow cursor
+# --- Windows the camera must leave alone ---
+window_pan_excludes: []       # class substrings, case-insensitive; fullscreen,
+                              # hidden and pinned windows are always excluded
 
-window_pan_excludes: []        # windows left in place while the canvas pans,
-                               # matched as a substring of the window class.
-                               # Fullscreen windows are always excluded.
-
-edge_scroll:
-  enabled: true                # auto-pan when dragged window goes past screen edge
-  ramp_distance: 50              # px of overflow to reach max speed
-  speed: 20.0                   # max px/frame (~1200 px/s at 60fps)
-  grab_dead_zone: 5              # px the window must move before camera engages
-  # max_speed: 30              # optional: cap per-frame edge-scroll delta (pixels)
-
+# --- Canvas mode ---
 canvas:
-  preserve_geometry: true      # remember where you panned windows to, restore on
-                               # the next ON; windows you did not move return to
-                               # the exact box they had while tiled
-  auto_float: true             # shape windows opened while canvas is ON:
-                               # float + size + centre them at map time
+  preserve_geometry: true     # remember where the windows were on canvas OFF and
+                              # restore that on the next ON
+  auto_float: true            # float and size windows that open while canvas is on
   spawn:
-    center: true               # centre new canvas windows on their monitor
-    default: 50%x60%           # px (960x620) or % of the monitor workarea
+    center: true              # centre them on their monitor
+    default: 50%x60%          # px (960x620) or % of the monitor workarea

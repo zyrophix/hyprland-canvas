@@ -28,7 +28,7 @@ not to, so expect breaking changes.
 
 | Feature | Keybind | Description |
 | --- | --- | --- |
-| Pan canvas | SUPER+SHIFT+LMB | Drag to pan all floating windows |
+| Pan canvas | SUPER+SHIFT+LMB | Drag all floating windows; the canvas follows the pointer exactly |
 | Edge-scroll | SUPER+LMB | Drag a floating window toward the screen edge — camera follows (engages only for a confirmed drag of the window under the cursor) |
 | Navigate | SUPER+SHIFT+Arrows | Spatial jump to nearest window in direction (up/down/left/right), auto-pan to center; with none that way, the camera steps instead |
 | Step-pan | your own keys → `canvas-ctl pan-left/right/up/down` | Move the whole canvas one `pan_step` (100 px by default) in that direction |
@@ -85,16 +85,7 @@ uv tool install . --force --reinstall   # or: pipx install . --force
 
 ```bash
 canvasd &            # 1. start the daemon
-canvas-ctl ping      # 2. check it answers
-```
-
-Expected output:
-
-```text
-PONG
-```
-
-```bash
+canvas-ctl ping      # 2. check it answers — prints PONG
 canvas-ctl status    # 3. show daemon state
 ```
 
@@ -130,13 +121,9 @@ Hyprland 0.55+ uses Lua for config. Add these binds:
 
 ```lua
 -- Canvas: pan (mouse binds)
-hl.bind("SUPER + SHIFT + mouse:272", function()
-    hl.exec_cmd("canvas-ctl pan-start")
-end, { mouse = true })
+hl.bind("SUPER + SHIFT + mouse:272", hl.dsp.exec_cmd("canvas-ctl pan-start"), { mouse = true })
 
-hl.bind("SUPER + SHIFT + mouse:272", function()
-    hl.exec_cmd("canvas-ctl pan-stop")
-end, { release = true, transparent = true })
+hl.bind("SUPER + SHIFT + mouse:272", hl.dsp.exec_cmd("canvas-ctl pan-stop"), { release = true, transparent = true })
 
 -- Canvas: edge-scroll (drag window to screen edge → camera follows)
 hl.bind("SUPER + mouse:272", function()
@@ -144,9 +131,7 @@ hl.bind("SUPER + mouse:272", function()
     hl.exec_cmd("canvas-ctl edge-start")
 end, { mouse = true })
 
-hl.bind("SUPER + mouse:272", function()
-    hl.exec_cmd("canvas-ctl edge-stop")
-end, { release = true, transparent = true })
+hl.bind("SUPER + mouse:272", hl.dsp.exec_cmd("canvas-ctl edge-stop"), { release = true, transparent = true })
 
 -- Canvas: center view on the floating window under the cursor
 hl.bind("SUPER + mouse:274", hl.dsp.exec_cmd("canvas-ctl center-cursor"), { mouse = true })
@@ -163,11 +148,13 @@ hl.bind("SUPER + SHIFT + V", hl.dsp.exec_cmd("canvas-ctl canvas-toggle-single"))
 hl.bind("SUPER + SHIFT + G", hl.dsp.exec_cmd("canvas-ctl toggle"))
 ```
 
-Two things about the options in the pairs above. `mouse = true` marks a bind as a
-mouse bind and conflicts with `release`, so the release halves omit it.
-`transparent = true` keeps a release half from being shadowed by its own press
-half: while the button is held, the press half has already consumed the event,
-and without the flag the release half never runs.
+A bind whose handler does one thing passes the dispatcher straight to
+`hl.bind`; `edge-start` needs two calls, so it uses a function. Two things about
+the options in the pairs above: `mouse = true` marks a bind as a mouse bind and
+conflicts with `release`, so the release halves omit it, and `transparent = true`
+keeps a release half from being shadowed by its own press half: while the button
+is held, the press half has already consumed the event, and without the flag the
+release half never runs.
 
 ### 3. Control commands
 
@@ -210,33 +197,17 @@ All defaults are built into the daemon (`DEFAULT_CONFIG` in `canvas/config.py`) 
 idle_timeout: 0.5             # seconds of gesture silence before pan/edge-scroll stops
 pan_step: 100                 # px one pan-left/right/up/down command moves
 invert:
-  enabled: true               # true = grab canvas (intuitive), false = follow cursor
+  enabled: true               # true = the canvas follows the cursor, false = the other way
 edge_scroll:
-  enabled: true               # auto-pan when dragging window past screen edge
-  ramp_distance: 50            # px of overflow to reach full speed
-  speed: 20.0                  # max px/frame at full overflow (~1200 px/s at 60fps)
-  grab_dead_zone: 5            # px of real movement before camera engages
-  # max_speed: 30             # optional: cap per-frame edge-scroll delta (pixels)
-navigation:
-  cooldown: 0.2               # seconds between nav commands
-  protected_apps:             # these windows are skipped during navigation
-    - brave-browser
-    - chromium
-    - firefox
-window_pan_excludes: []        # windows left in place while the canvas pans,
-                               # matched as a substring of the window class.
-                               # Fullscreen windows are always excluded.
+  speed: 20.0                 # px/frame at full overflow; the template has the rest
 canvas:
-  preserve_geometry: true     # remember where each window was when canvas was
-                               # last switched off, and restore that whole box on
-                               # the next ON. Recorded on every toggle off, so it
-                               # cannot go stale. Windows you did not move come
-                               # back to the exact box they had when tiled
-  auto_float: true            # shape windows opened while canvas is ON (see below)
+  auto_float: true            # float and size windows that open while canvas is on
   spawn:
-    center: true              # centre new canvas windows on their monitor
-    default: 50%x60%          # size: pixels (960x620) or % of the monitor workarea
+    default: 50%x60%          # px (960x620) or % of the monitor workarea
 ```
+
+That is the shape; the complete template — every key, its default and what it
+does — is [`config.yml`](config.yml) in the repository.
 
 Invalid values (wrong type, zero/negative numbers, a size that is not a size)
 are rejected at daemon startup with the exact offending keys listed on stderr.
@@ -308,7 +279,7 @@ end)
 ```
 
 Hyprland recommends the same technique for anything a static rule cannot express.
-To drop canvas sizing entirely, set `canvas: auto_float: false`.
+To drop canvas sizing entirely, set `canvas.auto_float: false`.
 
 Windows that were already open when canvas was enabled keep the box the layout
 gave them — spawn sizing only applies to windows that open *while* canvas is on,
@@ -322,9 +293,7 @@ The canvas pans and navigates; resizing an individual window is Hyprland's own
 job, and the dispatchers are enough:
 
 ```lua
-hl.bind("SUPER + SHIFT + mouse:273", function()
-    hl.dispatch(hl.dsp.window.resize({ x = 960, y = 620, relative = false }))
-end)
+hl.bind("SUPER + SHIFT + mouse:273", hl.dsp.window.resize({ x = 960, y = 620, relative = false }))
 ```
 
 `hl.dsp.window.move({ x = ..., y = ..., window = w })` and its `resize` likewise
@@ -335,12 +304,11 @@ a delta rather than to a coordinate.
 ### Reporting what a toggle did
 
 `canvas-ctl canvas-toggle` prints `CANVAS_ON` or `CANVAS_OFF` and exits non-zero
-on failure, so a bind can say what happened:
+on failure, so a bind can say what happened — on a key of its own, next to the
+plain toggle above rather than on top of it:
 
 ```lua
-hl.bind("SUPER + SHIFT + C", function()
-    os.execute("canvas-ctl canvas-toggle && notify-send 'Canvas on' || notify-send 'Canvas off'")
-end)
+hl.bind("SUPER + SHIFT + N", hl.dsp.exec_cmd("canvas-ctl canvas-toggle && notify-send 'Canvas on' || notify-send 'Canvas off'"))
 ```
 
 ### Status bar
