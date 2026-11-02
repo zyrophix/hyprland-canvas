@@ -207,7 +207,6 @@ failure rather than an empty success.
 All defaults are built into the daemon (`DEFAULT_CONFIG` in `canvas/config.py`) — it runs fine with no config file. The repo's `config.yml` is a ready-to-copy template; installed wheels/pipx/uv-tool packages do not include it. To customize, create `~/.config/canvas/config.yml`:
 
 ```yaml
-speed: 1.6                    # pan speed multiplier
 idle_timeout: 0.5             # seconds of gesture silence before pan/edge-scroll stops
 pan_step: 100                 # px one pan-left/right/up/down command moves
 invert:

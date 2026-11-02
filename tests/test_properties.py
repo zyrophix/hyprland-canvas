@@ -113,17 +113,16 @@ def test_toggle_order_is_a_stable_permutation(snapshot):
         min_size=2,
         max_size=50,
     ),
-    st.floats(min_value=0.1, max_value=10.0),
 )
-def test_pan_delta_carries_no_accumulated_error(positions, speed):
-    """The whole reason the total is kept instead of per-frame steps: summing
-    rounded steps drifts, summing floats and rounding once does not."""
-    state = PanningState(speed=speed)
+def test_pan_delta_carries_no_accumulated_error(positions):
+    """The whole reason the total is kept instead of per-frame steps: the result
+    is the cursor's own displacement, to the pixel, whatever path it took."""
+    state = PanningState()
     state.start_pan()
     for x, y in positions:
         state.update_cursor(x, y)
 
     dx, dy = state.get_total_delta()
 
-    assert abs(dx - (-speed * (positions[-1][0] - positions[0][0]))) <= 1
-    assert abs(dy - (-speed * (positions[-1][1] - positions[0][1]))) <= 1
+    assert dx == -(positions[-1][0] - positions[0][0])
+    assert dy == -(positions[-1][1] - positions[0][1])

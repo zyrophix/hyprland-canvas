@@ -8,7 +8,7 @@ from canvas.panning import EdgeScrollParams, EdgeScrollState, PanningState
 
 
 def _make_daemon_state(ipc: MagicMock | None = None, navigator=None) -> DaemonState:
-    panning = PanningState(speed=1.0)
+    panning = PanningState()
     edge_scroll = EdgeScrollState(ramp_distance=50, speed=20.0, enabled=True)
     if ipc is None:
         ipc = MagicMock()

@@ -10,11 +10,11 @@ from canvas.config import DEFAULT_CONFIG, ConfigError, load, validate
 def test_load_default_config_when_no_file():
     """Config returns hardcoded defaults when no YAML files exist at all."""
     # skip_user=True + path that doesn't exist → falls through to bundled config.yml
-    # which has speed:1.3. To test pure defaults, we need to also skip bundled.
-    # Easiest: just verify the merge logic works, not the exact default value.
+    # which is merged over DEFAULT_CONFIG. The merge is what this checks, not
+    # any single default value.
     cfg = load("/nonexistent/path/config.yml", skip_user=True)
-    # Bundled config.yml speed matches DEFAULT_CONFIG
-    assert cfg["speed"] == DEFAULT_CONFIG["speed"]
+    # Bundled config.yml values match DEFAULT_CONFIG
+    assert cfg["idle_timeout"] == DEFAULT_CONFIG["idle_timeout"]
     # Navigation defaults from DEFAULT_CONFIG still apply
     assert cfg["navigation"]["cooldown"] == 0.2
     assert "firefox" in cfg["navigation"]["protected_apps"]
@@ -24,12 +24,12 @@ def test_load_default_config_when_no_file():
 def test_load_partial_config_merges_defaults():
     """Partial YAML file merges with defaults."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
-        f.write("speed: 3.0\ninvert:\n  enabled: true\n")
+        f.write("pan_step: 250\ninvert:\n  enabled: true\n")
         f.flush()
         cfg = load(f.name)
     os.unlink(f.name)
 
-    assert cfg["speed"] == 3.0
+    assert cfg["pan_step"] == 250
     assert cfg["invert"]["enabled"] is True
     # defaults still present
     assert cfg["navigation"]["cooldown"] == DEFAULT_CONFIG["navigation"]["cooldown"]
@@ -37,7 +37,7 @@ def test_load_partial_config_merges_defaults():
 
 def test_load_full_config():
     """Full YAML file overrides all defaults."""
-    yaml_content = """speed: 2.0
+    yaml_content = """pan_step: 200
 navigation:
   cooldown: 0.5
   protected_apps:
@@ -51,7 +51,7 @@ invert:
         cfg = load(f.name)
     os.unlink(f.name)
 
-    assert cfg["speed"] == 2.0
+    assert cfg["pan_step"] == 200
     assert cfg["navigation"]["cooldown"] == 0.5
     assert cfg["navigation"]["protected_apps"] == ["my-browser"]
     assert cfg["invert"]["enabled"] is True
@@ -61,20 +61,20 @@ def test_deep_merge_does_not_mutate_defaults():
     """Loading config must not mutate DEFAULT_CONFIG."""
     from canvas.config import DEFAULT_CONFIG as dc
 
-    original_speed = dc["speed"]
+    original_step = dc["pan_step"]
     original_protected = list(dc["navigation"]["protected_apps"])
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
-        f.write("speed: 99.0\nnavigation:\n  protected_apps:\n    - hacked\n")
+        f.write("pan_step: 99\nnavigation:\n  protected_apps:\n    - hacked\n")
         f.flush()
         cfg = load(f.name)
     os.unlink(f.name)
 
     # The returned config has overrides
-    assert cfg["speed"] == 99.0
+    assert cfg["pan_step"] == 99
     assert cfg["navigation"]["protected_apps"] == ["hacked"]
     # But DEFAULT_CONFIG is untouched
-    assert dc["speed"] == original_speed
+    assert dc["pan_step"] == original_step
     assert dc["navigation"]["protected_apps"] == original_protected
 
 
@@ -98,72 +98,51 @@ def test_validate_default_config_has_no_problems():
     assert validate(copy.deepcopy(DEFAULT_CONFIG)) == []
 
 
-def test_validate_rejects_zero_speed():
-    problems = validate({"speed": 0})
-    assert any("speed" in p for p in problems)
+def test_validate_reports_the_removed_pan_keys():
+    """Both were removed rather than defaulted, so a config still carrying
+    them is told to delete them instead of silently changing behaviour."""
+    problems = validate({"speed": 1.6, "max_speed": 50})
 
-
-def test_validate_rejects_string_speed():
-    problems = validate({"speed": "abc"})
-    assert any("speed" in p for p in problems)
-
-
-def test_validate_rejects_bool_speed():
-    """bool is not a valid number for config purposes."""
-    problems = validate({"speed": True})
-    assert any("speed" in p for p in problems)
-
-
-def test_validate_rejects_negative_max_speed():
-    problems = validate({"speed": 1.0, "max_speed": -5})
-    assert any("max_speed" in p for p in problems)
-
-
-def test_validate_allows_null_max_speed():
-    problems = validate({"speed": 1.0, "max_speed": None})
-    assert not any("max_speed" in p for p in problems)
+    assert any("speed was removed" in p for p in problems)
+    assert any("max_speed was removed" in p for p in problems)
 
 
 def test_validate_rejects_negative_cooldown():
-    problems = validate({"speed": 1.0, "navigation": {"cooldown": -1}})
+    problems = validate({"navigation": {"cooldown": -1}})
     assert any("cooldown" in p for p in problems)
 
 
 def test_validate_rejects_non_list_protected_apps():
-    problems = validate({"speed": 1.0, "navigation": {"protected_apps": "firefox"}})
+    problems = validate({"navigation": {"protected_apps": "firefox"}})
     assert any("protected_apps" in p for p in problems)
 
 
 def test_validate_rejects_non_dict_section():
-    problems = validate({"speed": 1.0, "invert": None})
+    problems = validate({"invert": None})
     assert any("invert" in p for p in problems)
 
 
 def test_validate_rejects_zero_ramp_distance():
-    problems = validate(
-        {"speed": 1.0, "edge_scroll": {"ramp_distance": 0, "speed": 20.0, "enabled": True}}
-    )
+    problems = validate({"edge_scroll": {"ramp_distance": 0, "speed": 20.0, "enabled": True}})
     assert any("ramp_distance" in p for p in problems)
 
 
 def test_validate_rejects_float_ramp_distance():
-    problems = validate(
-        {"speed": 1.0, "edge_scroll": {"ramp_distance": 50.5, "speed": 20.0, "enabled": True}}
-    )
+    problems = validate({"edge_scroll": {"ramp_distance": 50.5, "speed": 20.0, "enabled": True}})
     assert any("ramp_distance" in p for p in problems)
 
 
 def test_load_raises_config_error_listing_problems():
     with pytest.raises(ConfigError) as exc_info:
-        _load_yaml("speed: -1\ninvert:\n  enabled: maybe\n")
+        _load_yaml("idle_timeout: -1\ninvert:\n  enabled: maybe\n")
     msg = str(exc_info.value)
-    assert "speed" in msg
+    assert "idle_timeout" in msg
     assert "invert.enabled" in msg
 
 
 def test_load_valid_partial_config_passes():
-    cfg = _load_yaml("speed: 2.5\n")
-    assert cfg["speed"] == 2.5
+    cfg = _load_yaml("pan_step: 25\n")
+    assert cfg["pan_step"] == 25
 
 
 # --- toggle_state persistence ---
@@ -294,7 +273,6 @@ def test_toggle_state_load_corrupt_file(tmp_path):
 def test_validate_rejects_bad_grab_dead_zone():
     problems = validate(
         {
-            "speed": 1.0,
             "edge_scroll": {
                 "ramp_distance": 50,
                 "speed": 20.0,
@@ -306,12 +284,12 @@ def test_validate_rejects_bad_grab_dead_zone():
     assert any("grab_dead_zone" in p for p in problems)
 
 
-@pytest.mark.parametrize("content", ["speed: .nan\n", "speed: .inf\n"])
+@pytest.mark.parametrize("content", ["idle_timeout: .nan\n", "idle_timeout: .inf\n"])
 def test_load_rejects_non_finite_numbers(tmp_path, content):
     path = tmp_path / "config.yml"
     path.write_text(content)
 
-    with pytest.raises(ConfigError, match="speed must be a number"):
+    with pytest.raises(ConfigError, match="idle_timeout must be a number"):
         load(str(path))
 
 
@@ -342,7 +320,7 @@ def test_toggle_state_save_raises_on_write_failure(tmp_path):
 
 
 def _cfg(**canvas):
-    return {"speed": 1.6, "idle_timeout": 0.5, "canvas": {"preserve_geometry": True, **canvas}}
+    return {"idle_timeout": 0.5, "canvas": {"preserve_geometry": True, **canvas}}
 
 
 def test_validate_accepts_minimal_spawn():
@@ -408,19 +386,29 @@ def test_load_without_any_candidate_uses_the_built_ins():
 
 
 def test_validate_rejects_a_negative_idle_timeout():
-    problems = validate({"speed": 1.0, "idle_timeout": -1})
+    problems = validate({"idle_timeout": -1})
 
     assert any("idle_timeout" in p for p in problems)
 
 
 def test_validate_rejects_a_zero_idle_timeout():
     """Zero would disarm on the first check, so it is a mistake, not an opt-out."""
-    problems = validate({"speed": 1.0, "idle_timeout": 0})
+    problems = validate({"idle_timeout": 0})
 
     assert any("idle_timeout" in p for p in problems)
 
 
 def test_validate_rejects_a_bad_pan_step():
     for bad in (0, -5, "big", True):
-        problems = validate({"speed": 1.0, "pan_step": bad})
+        problems = validate({"pan_step": bad})
         assert any("pan_step" in p for p in problems), bad
+
+
+def test_load_rejects_the_removed_pan_keys():
+    """End to end, not only through `validate`: the daemon has to refuse to
+    start on a config that still names them."""
+    with pytest.raises(ConfigError, match="speed was removed"):
+        _load_yaml("speed: 1.6\n")
+
+    with pytest.raises(ConfigError, match="max_speed was removed"):
+        _load_yaml("max_speed: 50\n")

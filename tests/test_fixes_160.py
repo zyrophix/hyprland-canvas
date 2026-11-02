@@ -33,7 +33,7 @@ def _navigator(**kwargs):
 
 
 def _state(ipc: MagicMock | None = None) -> DaemonState:
-    panning = PanningState(speed=1.0)
+    panning = PanningState()
     edge_scroll = EdgeScrollState(ramp_distance=50, speed=20.0, enabled=True)
     navigator = Navigator(ipc=ipc or MagicMock(), cooldown=0.0)
     return DaemonState(

@@ -311,3 +311,15 @@ def test_run_gives_the_root_logger_the_handler_debug_builds():
     handlers = handle.basic_config.call_args.kwargs["handlers"]
     assert handlers == [handle.root_handler.return_value]
     assert handle.basic_config.call_args.kwargs["force"] is True
+
+
+def test_run_applies_a_delta_that_comes_back_to_zero():
+    """The total is absolute, so zero is the baseline — a real position.
+    Skipping it left the canvas short of the pointer until the next move."""
+    handle = _drive(
+        _FakePanning([True, True, True], [(100, 50), (0, 0)]),
+        _FakeEdgeScroll([False, False, False], []),
+        iterations=3,
+    )
+
+    assert [c.args for c in handle.move.call_args_list] == [(100, 50), (0, 0)]

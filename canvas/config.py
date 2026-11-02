@@ -16,8 +16,6 @@ class ConfigError(Exception):
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "speed": 1.6,
-    "max_speed": None,
     # Seconds without gesture input before pan or edge-scroll ends on its own.
     "idle_timeout": 0.5,
     # Pixels one pan-left/right/up/down command moves the canvas.
@@ -82,6 +80,8 @@ def _is_num(value: object) -> TypeGuard[int | float]:
 # useless: the reader needs to know what to do with the key, not that it is
 # unknown.
 _REMOVED_KEYS: dict[str, str] = {
+    "speed": "speed was removed in 1.7.0 and has no replacement; delete it.",
+    "max_speed": "max_speed was removed in 1.7.0 and has no replacement; delete it.",
     "canvas.spawn.rules": (
         "canvas.spawn.rules was removed in 1.7.0 — per-class spawn sizing belongs "
         'in your Hyprland config as a windowrule now; see README, "Sizing windows '
@@ -123,14 +123,6 @@ def validate(cfg: dict[str, Any]) -> list[str]:
         _REMOVED_KEYS.get(name, f"{name} is not a setting this version reads")
         for name in _unknown_keys(cfg, DEFAULT_CONFIG)
     )
-
-    speed = cfg.get("speed")
-    if not _is_num(speed) or speed <= 0:
-        errors.append(f"speed must be a number > 0, got {speed!r}")
-
-    max_speed = cfg.get("max_speed")
-    if max_speed is not None and (not _is_num(max_speed) or max_speed <= 0):
-        errors.append(f"max_speed must be a number > 0 or null, got {max_speed!r}")
 
     idle_timeout = cfg.get("idle_timeout")
     if not _is_num(idle_timeout) or idle_timeout <= 0:

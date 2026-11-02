@@ -12,8 +12,6 @@ from canvas.navigation import Navigator
 from canvas.panning import EdgeScrollState, PanningState
 
 FULL_CONFIG = """
-speed: 2.5
-max_speed: 9.0
 idle_timeout: 1.25
 pan_step: 250
 invert:
@@ -84,8 +82,6 @@ def test_apply_config_maps_every_key(tmp_path):
 
     ds.apply_config(_load_from(tmp_path, FULL_CONFIG))
 
-    assert ds.panning.speed == 2.5
-    assert ds.panning.max_speed == 9.0
     assert ds.panning.idle_timeout == 1.25
     assert ds.navigator._pan_step == 250
     assert ds.panning.inverted is False
@@ -113,14 +109,14 @@ def test_reload_changes_live_state_not_just_response(tmp_path):
     """
     _write_config(tmp_path, FULL_CONFIG)
     ds = _state()
-    before = ds.panning.speed
-    assert before != 2.5
+    before = ds.panning.idle_timeout
+    assert before != 1.25
 
     with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(tmp_path)}):
         response = ds.handle_ipc("RELOAD")
 
     assert response.startswith("OK")
-    assert ds.panning.speed == 2.5
+    assert ds.panning.idle_timeout == 1.25
     assert ds.edge_scroll.ramp_distance == 77
     assert ds.navigator._auto_float is True
 
@@ -131,15 +127,15 @@ def test_reload_rejects_invalid_config_and_keeps_previous(tmp_path):
     ds = _state()
     with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(tmp_path)}):
         ds.handle_ipc("RELOAD")
-    assert ds.panning.speed == 2.5
+    assert ds.panning.idle_timeout == 1.25
 
-    _write_config(tmp_path, "speed: not-a-number\n")
+    _write_config(tmp_path, "idle_timeout: not-a-number\n")
     with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(tmp_path)}):
         response = ds.handle_ipc("RELOAD")
 
     assert response.startswith("ERROR:CONFIG_INVALID")
     # The daemon is still running on the last good config, not a half-applied one.
-    assert ds.panning.speed == 2.5
+    assert ds.panning.idle_timeout == 1.25
     assert ds.navigator._auto_float is True
 
 
@@ -150,12 +146,12 @@ def test_reload_rejects_malformed_yaml_and_keeps_previous(tmp_path):
     with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(tmp_path)}):
         ds.handle_ipc("RELOAD")
 
-    _write_config(tmp_path, "speed: [unclosed\n")
+    _write_config(tmp_path, "idle_timeout: [unclosed\n")
     with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(tmp_path)}):
         response = ds.handle_ipc("RELOAD")
 
     assert response.startswith("ERROR:CONFIG_INVALID")
-    assert ds.panning.speed == 2.5
+    assert ds.panning.idle_timeout == 1.25
 
 
 def test_reload_rearms_spawn_rules(tmp_path):
@@ -236,7 +232,7 @@ def test_apply_config_rejects_a_partial_config():
     """
     ds = _state()
     with pytest.raises(KeyError):
-        ds.apply_config({"speed": 2.0, "max_speed": None, "invert": {"enabled": False}})
+        ds.apply_config({"idle_timeout": 2.0, "invert": {"enabled": False}})
 
 
 def test_reload_survives_a_double_call(tmp_path):
@@ -249,7 +245,7 @@ def test_reload_survives_a_double_call(tmp_path):
 
     assert first.startswith("OK")
     assert second.startswith("OK")
-    assert ds.panning.speed == 2.5
+    assert ds.panning.idle_timeout == 1.25
     assert ds.navigator._protected_apps == ["foo", "bar"]
 
 
@@ -268,7 +264,7 @@ def test_resolve_path_is_none_without_any_file(tmp_path):
 
 
 def test_malformed_yaml_names_the_file(tmp_path):
-    path = _write_config(tmp_path, "speed: [unclosed\n")
+    path = _write_config(tmp_path, "idle_timeout: [unclosed\n")
     with (
         patch.dict(os.environ, {"XDG_CONFIG_HOME": str(tmp_path)}),
         pytest.raises(ConfigError) as exc,
@@ -278,7 +274,7 @@ def test_malformed_yaml_names_the_file(tmp_path):
 
 
 def test_validation_error_names_the_file(tmp_path):
-    path = _write_config(tmp_path, "speed: not-a-number\n")
+    path = _write_config(tmp_path, "idle_timeout: not-a-number\n")
     with (
         patch.dict(os.environ, {"XDG_CONFIG_HOME": str(tmp_path)}),
         pytest.raises(ConfigError) as exc,

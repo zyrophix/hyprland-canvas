@@ -101,8 +101,6 @@ class DaemonState:
             # The file the values came from, for `status`. Passed in rather than
             # looked up, so a reload cannot report a path it did not read.
             self.config_source = source
-            self.panning.speed = cfg["speed"]
-            self.panning.max_speed = cfg["max_speed"]
             self.panning.idle_timeout = cfg["idle_timeout"]
             self.panning.inverted = cfg["invert"]["enabled"]
 
@@ -808,10 +806,8 @@ def run() -> None:
                     prev_total = (0, 0)
                 else:
                     total_dx, total_dy = state.get_total_delta()
-                    if (
-                        total_dx,
-                        total_dy,
-                    ) != (0, 0) and (total_dx, total_dy) != prev_total:
+                    # A delta back at zero is the baseline, not a no-op.
+                    if (total_dx, total_dy) != prev_total:
                         prev_total = (total_dx, total_dy)
                         try:
                             daemon_state.move_windows_to_delta(total_dx, total_dy)

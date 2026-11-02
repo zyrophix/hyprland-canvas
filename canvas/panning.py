@@ -42,14 +42,7 @@ class PanningState:
     eliminating drift.
     """
 
-    def __init__(
-        self,
-        speed: float = 1.0,
-        max_speed: float | None = None,
-        idle_timeout: float = 0.5,
-    ):
-        self.speed = speed
-        self.max_speed = max_speed
+    def __init__(self, idle_timeout: float = 0.5):
         # Seconds without gesture input before a pan ends on its own, for the
         # case where the release bind never arrives. Set from config at boot.
         self.idle_timeout = idle_timeout
@@ -59,8 +52,8 @@ class PanningState:
 
         self._prev_x: int | None = None
         self._prev_y: int | None = None
-        self._total_dx = 0.0
-        self._total_dy = 0.0
+        self._total_dx = 0
+        self._total_dy = 0
         self._last_move_time: float = 0.0
 
         self._lock = threading.Lock()
@@ -91,8 +84,8 @@ class PanningState:
             self._pan_active = True
             self._prev_x = None
             self._prev_y = None
-            self._total_dx = 0.0
-            self._total_dy = 0.0
+            self._total_dx = 0
+            self._total_dy = 0
             self._last_move_time = time.monotonic()
             return "PAN_ON"
 
@@ -102,8 +95,8 @@ class PanningState:
             self._pan_active = False
             self._prev_x = None
             self._prev_y = None
-            self._total_dx = 0.0
-            self._total_dy = 0.0
+            self._total_dx = 0
+            self._total_dy = 0
 
     def update_cursor(self, x: int, y: int) -> None:
         """Feed cursor position. If panning, accumulate total delta."""
@@ -118,13 +111,8 @@ class PanningState:
                 dy = y - self._prev_y
                 if dx != 0 or dy != 0:
                     sign = 1 if self._inverted else -1
-                    step_x = dx * self.speed * sign
-                    step_y = dy * self.speed * sign
-                    if self.max_speed is not None:
-                        step_x = max(-self.max_speed, min(self.max_speed, step_x))
-                        step_y = max(-self.max_speed, min(self.max_speed, step_y))
-                    self._total_dx += step_x
-                    self._total_dy += step_y
+                    self._total_dx += dx * sign
+                    self._total_dy += dy * sign
                     self._last_move_time = time.monotonic()
 
             self._prev_x = x
@@ -137,8 +125,8 @@ class PanningState:
                 self._pan_active = False
                 self._prev_x = None
                 self._prev_y = None
-                self._total_dx = 0.0
-                self._total_dy = 0.0
+                self._total_dx = 0
+                self._total_dy = 0
                 debug.dbg("PAN_IDLE_TIMEOUT")
                 return True
             return False
@@ -151,7 +139,7 @@ class PanningState:
         absolute moves, so drift cannot accumulate.
         """
         with self._lock:
-            return round(self._total_dx), round(self._total_dy)
+            return self._total_dx, self._total_dy
 
 
 class EdgeScrollState:

@@ -7,21 +7,21 @@ from canvas.panning import EdgeScrollParams, EdgeScrollState, PanningState, curs
 
 
 def test_start_pan_activates():
-    state = PanningState(speed=1.0)
+    state = PanningState()
     result = state.start_pan()
     assert state.pan_active is True
     assert result == "PAN_ON"
 
 
 def test_stop_pan_deactivates():
-    state = PanningState(speed=1.0)
+    state = PanningState()
     state.start_pan()
     state.stop_pan()
     assert state.pan_active is False
 
 
 def test_cursor_delta_accumulates_when_panning():
-    state = PanningState(speed=1.0)
+    state = PanningState()
     state.start_pan()
     state.update_cursor(100, 100)
     state.update_cursor(110, 105)
@@ -30,18 +30,8 @@ def test_cursor_delta_accumulates_when_panning():
     assert dy == -5
 
 
-def test_cursor_delta_applies_speed():
-    state = PanningState(speed=2.0)
-    state.start_pan()
-    state.update_cursor(100, 100)
-    state.update_cursor(110, 105)
-    dx, dy = state.get_total_delta()
-    assert dx == -20
-    assert dy == -10
-
-
 def test_cursor_delta_applies_invert():
-    state = PanningState(speed=1.0)
+    state = PanningState()
     state.inverted = True
     state.start_pan()
     state.update_cursor(100, 100)
@@ -52,7 +42,7 @@ def test_cursor_delta_applies_invert():
 
 
 def test_no_delta_when_not_panning():
-    state = PanningState(speed=1.0)
+    state = PanningState()
     state.update_cursor(100, 100)
     state.update_cursor(110, 105)
     dx, dy = state.get_total_delta()
@@ -61,7 +51,7 @@ def test_no_delta_when_not_panning():
 
 
 def test_total_delta_is_running_total():
-    state = PanningState(speed=1.0)
+    state = PanningState()
     state.start_pan()
     state.update_cursor(100, 100)
     state.update_cursor(110, 105)
@@ -75,7 +65,7 @@ def test_total_delta_is_running_total():
 
 
 def test_get_total_delta_does_not_reset():
-    state = PanningState(speed=1.0)
+    state = PanningState()
     state.start_pan()
     state.update_cursor(100, 100)
     state.update_cursor(110, 105)
@@ -86,7 +76,7 @@ def test_get_total_delta_does_not_reset():
 
 
 def test_total_delta_accumulates_multiple_moves():
-    state = PanningState(speed=1.0)
+    state = PanningState()
     state.start_pan()
     state.update_cursor(100, 100)
     state.update_cursor(110, 100)
@@ -97,7 +87,7 @@ def test_total_delta_accumulates_multiple_moves():
 
 
 def test_stop_pan_clears_total():
-    state = PanningState(speed=1.0)
+    state = PanningState()
     state.start_pan()
     state.update_cursor(100, 100)
     state.update_cursor(110, 105)
@@ -108,7 +98,7 @@ def test_stop_pan_clears_total():
 
 
 def test_is_dragging_property():
-    state = PanningState(speed=1.0)
+    state = PanningState()
     assert state.is_dragging is False
     state.start_pan()
     assert state.is_dragging is True
@@ -116,28 +106,8 @@ def test_is_dragging_property():
     assert state.is_dragging is False
 
 
-def test_max_speed_clamps_step():
-    state = PanningState(speed=1.0, max_speed=10)
-    state.start_pan()
-    state.update_cursor(0, 0)
-    state.update_cursor(100, 100)
-    dx, dy = state.get_total_delta()
-    assert dx == -10
-    assert dy == -10
-
-
-def test_max_speed_none_no_clamp():
-    state = PanningState(speed=1.0, max_speed=None)
-    state.start_pan()
-    state.update_cursor(0, 0)
-    state.update_cursor(100, 100)
-    dx, dy = state.get_total_delta()
-    assert dx == -100
-    assert dy == -100
-
-
 def test_poller_alive_initially_true():
-    state = PanningState(speed=1.0)
+    state = PanningState()
     assert state.poller_alive is True
 
 
@@ -724,7 +694,7 @@ def test_cursor_poller_does_nothing_when_already_stopped():
 
 
 def test_cursor_poller_feeds_the_cursor_and_leaves_geometry_alone():
-    state = PanningState(speed=1.0)
+    state = PanningState()
     state.start_pan()
 
     with patch("canvas.panning.hypr.get_active_window_geometry") as geometry:

@@ -14,6 +14,7 @@ canvasd (daemon)
 Key design decisions:
 
 - **Cursor polling** — reads cursor position from Hyprland IPC, works on any Wayland setup
+- **A canvas drag is 1:1** — the window under the pointer stays under it; more reach comes from pointer acceleration in the compositor or from the `pan-*` step commands
 - **`hl.dsp.window.move({window=w})` without focus** — passing a window object bypasses auto-focus, so no cursor warp or feedback loop
 - **Direct socket IPC** — one short-lived Unix-socket request per Hyprland command, avoiding subprocess startup on every frame
 - **Workspace-scoped** — pan, edge-scroll, navigation and cursor centering only move floating windows on the current workspace; other workspaces are never touched

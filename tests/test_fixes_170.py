@@ -291,7 +291,6 @@ def test_validate_rejects_a_typo_inside_a_section():
 def test_validate_accepts_a_setting_whose_default_is_none():
     """max_speed defaults to None while a number is valid, so only the key is
     compared — a type test against the default would reject every real value."""
-    assert _validate(max_speed=5) == []
     assert _validate(edge_scroll={"max_speed": 30}) == []
 
 

@@ -456,7 +456,7 @@ def _daemon_state():
     ipc = MagicMock()
     ipc.eval_lua.return_value = "ok"
     state = DaemonState(
-        panning=PanningState(speed=1.0),
+        panning=PanningState(),
         edge_scroll=EdgeScrollState(ramp_distance=50, speed=20.0, enabled=True, grab_dead_zone=5),
         navigator=navigator,
         ipc=ipc,
