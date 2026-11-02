@@ -36,7 +36,7 @@ not to, so expect breaking changes.
 | Canvas toggle | SUPER+SHIFT+C | Toggle all windows on workspace to/from floating, keeping each window exactly where and how big it was |
 | Reset layout | your own keys → `canvas-ctl canvas-reset` | Forget the saved canvas layout for the active workspace, so the next toggle lays its windows out from the tiling boxes. Only meaningful while the workspace is tiled |
 | Window sizing | on canvas enable | Give windows that open while canvas is on a size — one default, on by default (see [Sizing windows that open during canvas](#sizing-windows-that-open-during-canvas)) |
-| Toggle single | SUPER+SHIFT+V | Toggle focused window floating ↔ tiled |
+| Toggle single | SUPER+SHIFT+V | Toggle focused window floating ↔ tiled; inside canvas mode it returns to the box it had in the canvas |
 | Invert | SUPER+SHIFT+G | Invert pan direction |
 
 ## Install
@@ -236,6 +236,12 @@ result independent of the order the windows were floated in.
 Windows that were already floating when canvas was enabled are not touched at
 all. On `canvas-toggle` the windows recorded at enable time are tiled again,
 while windows that were already floating survive.
+
+`canvas-toggle-single` (SUPER+SHIFT+V) follows the same rule for one window:
+inside canvas mode, tiling the focused window records where it sat in the canvas
+and floating it again returns it there. Outside canvas mode the compositor's own
+toggle decides, which means the window comes back centred rather than where it
+was.
 
 Where the windows end up afterwards is up to your layout, not to the order they
 were toggled in: dwindle puts each window back as a split at the node nearest

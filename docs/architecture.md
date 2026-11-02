@@ -113,6 +113,10 @@ its next ON takes the tiled box (step 2) instead. It is only meaningful while
 that workspace is tiled: the next OFF captures the canvas again, so a reset made
 during canvas does not survive it.
 
+`canvas-toggle-single` uses the same record for one window: inside canvas mode,
+tiling the focused window stores its box and floating it again applies that box.
+Outside canvas mode the compositor's own toggle decides.
+
 The record is not applied to windows it has nothing for: a state file migrated
 from before 1.2 keeps window addresses and drops their geometry, and such an
 entry falls back to step 2. `preserve_geometry` selects step 1; with it off

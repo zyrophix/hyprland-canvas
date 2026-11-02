@@ -566,6 +566,149 @@ def test_canvas_toggle_single_reports_a_lua_failure():
         assert nav.canvas_toggle_single() == "ERROR:TOGGLE_FAILED"
 
 
+FLOATING_BOX = {
+    "address": "0xabc",
+    "floating": True,
+    "at": [10, 20],
+    "size": [300, 200],
+    "workspace": {"id": 1},
+}
+TILED_WINDOW = {"address": "0xabc", "floating": False, "workspace": {"id": 1}}
+
+
+def test_canvas_toggle_single_records_the_box_inside_canvas_mode():
+    """Leaving the canvas remembers the box, like `canvas-toggle-all` does."""
+    ipc = MagicMock()
+    ipc.eval_lua.return_value = "ok"
+    ipc.send.return_value = json.dumps([{"address": "0xabc"}])
+    nav = _make_nav(ipc)
+    nav._canvas_mode_workspaces[1] = {"0xabc": {}}
+
+    with (
+        patch.object(nav, "_get_focused_window", return_value=FLOATING_BOX),
+        patch.object(nav, "_persist_canvas_state") as save,
+    ):
+        assert nav.canvas_toggle_single() == "TILED"
+
+    assert nav._floating_geos[1]["0xabc"] == {"at": [10, 20], "size": [300, 200]}
+    save.assert_called_once()
+
+
+def test_canvas_toggle_single_restores_the_box_inside_canvas_mode():
+    ipc = MagicMock()
+    ipc.eval_lua.return_value = "ok"
+    ipc.send.return_value = json.dumps(
+        [{"address": "0xabc", "floating": True, "workspace": {"id": 1}}]
+    )
+    nav = _make_nav(ipc)
+    nav._canvas_mode_workspaces[1] = {"0xabc": {}}
+    nav._floating_geos[1] = {"0xabc": {"at": [10, 20], "size": [300, 200]}}
+
+    with patch.object(nav, "_get_focused_window", return_value=TILED_WINDOW):
+        assert nav.canvas_toggle_single() == "FLOATED"
+
+    restored = ipc.eval_lua.call_args.args[0]
+    assert '["0xabc"] = {at={10,20}, size={300,200}},' in restored
+    assert "dsp.window.move" in restored
+
+
+def test_canvas_toggle_single_outside_canvas_mode_keeps_the_compositor_behaviour():
+    ipc = MagicMock()
+    ipc.eval_lua.return_value = "ok"
+    nav = _make_nav(ipc)
+
+    with patch.object(nav, "_get_focused_window", return_value=FLOATING_BOX):
+        assert nav.canvas_toggle_single() == "TILED"
+
+    assert nav._floating_geos == {}
+    assert ipc.eval_lua.call_count == 1
+    assert "dsp.window.move" not in ipc.eval_lua.call_args.args[0]
+
+
+def test_canvas_toggle_single_leaves_geometry_alone_when_preserve_is_off():
+    ipc = MagicMock()
+    ipc.eval_lua.return_value = "ok"
+    nav = _make_nav(ipc)
+    nav._preserve_geometry = False
+    nav._canvas_mode_workspaces[1] = {"0xabc": {}}
+
+    with (
+        patch.object(nav, "_get_focused_window", return_value=FLOATING_BOX),
+        patch.object(nav, "_persist_canvas_state") as save,
+    ):
+        assert nav.canvas_toggle_single() == "TILED"
+
+    assert nav._floating_geos == {}
+    save.assert_not_called()
+
+
+def test_canvas_toggle_single_restore_without_a_record_does_nothing():
+    ipc = MagicMock()
+    ipc.eval_lua.return_value = "ok"
+    nav = _make_nav(ipc)
+    nav._canvas_mode_workspaces[1] = {"0xabc": {}}
+
+    with patch.object(nav, "_get_focused_window", return_value=TILED_WINDOW):
+        assert nav.canvas_toggle_single() == "FLOATED"
+
+    assert ipc.eval_lua.call_count == 1
+
+
+def test_canvas_toggle_single_records_nothing_for_an_unusable_box():
+    ipc = MagicMock()
+    ipc.eval_lua.return_value = "ok"
+    ipc.send.return_value = json.dumps([{"address": "0xabc"}])
+    nav = _make_nav(ipc)
+    nav._canvas_mode_workspaces[1] = {"0xabc": {}}
+
+    with (
+        patch.object(
+            nav,
+            "_get_focused_window",
+            return_value={"address": "0xabc", "floating": True, "workspace": {"id": 1}},
+        ),
+        patch.object(nav, "_persist_canvas_state") as save,
+    ):
+        nav.canvas_toggle_single()
+
+    assert nav._floating_geos == {}
+    save.assert_not_called()
+
+
+def test_canvas_toggle_single_drops_the_box_of_a_closed_window():
+    ipc = MagicMock()
+    ipc.eval_lua.return_value = "ok"
+    ipc.send.return_value = json.dumps([{"address": "0xabc"}])
+    nav = _make_nav(ipc)
+    nav._canvas_mode_workspaces[1] = {"0xabc": {}}
+    nav._floating_geos[1] = {"0xdead": {"at": [1, 2], "size": [3, 4]}}
+
+    with (
+        patch.object(nav, "_get_focused_window", return_value=FLOATING_BOX),
+        patch.object(nav, "_persist_canvas_state"),
+    ):
+        nav.canvas_toggle_single()
+
+    assert set(nav._floating_geos[1]) == {"0xabc"}
+
+
+def test_canvas_toggle_single_keeps_the_box_when_the_client_query_fails():
+    """A failed lookup must not read as "no live windows" and wipe the record."""
+    ipc = MagicMock()
+    ipc.eval_lua.return_value = "ok"
+    ipc.send.side_effect = RuntimeError("no compositor")
+    nav = _make_nav(ipc)
+    nav._canvas_mode_workspaces[1] = {"0xabc": {}}
+
+    with (
+        patch.object(nav, "_get_focused_window", return_value=FLOATING_BOX),
+        patch.object(nav, "_persist_canvas_state"),
+    ):
+        nav.canvas_toggle_single()
+
+    assert set(nav._floating_geos[1]) == {"0xabc"}
+
+
 # --- failure paths around snapshotting and applying geometry ----------------
 
 

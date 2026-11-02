@@ -30,6 +30,27 @@ def fullscreen_state(window: dict[str, Any]) -> int:
         return 0
 
 
+def _window_box(window: dict[str, Any]) -> dict[str, list[int]] | None:
+    """The window's box as {at, size}; None when the numbers are unusable."""
+    try:
+        at = window["at"]
+        size = window["size"]
+        return {"at": [int(at[0]), int(at[1])], "size": [int(size[0]), int(size[1])]}
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+
+
+def _window_workspace_id(window: dict[str, Any]) -> int | None:
+    """The window's workspace id; None when the compositor's shape is unusable."""
+    ws = window.get("workspace")
+    if not isinstance(ws, dict):
+        return None
+    try:
+        return int(ws["id"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _skip_set_lua(addresses: set[str] | None) -> str:
     """Lua defining `skip`, a set of window addresses, for the move batches.
 
@@ -575,6 +596,11 @@ class Navigator:
         return "CANVAS_ON"
 
     def canvas_toggle_single(self) -> str:
+        """Toggle the focused window, keeping its box inside canvas mode.
+
+        Inside canvas mode the box is recorded on the way out and restored on
+        the way back, in the same per-workspace record `canvas-toggle-all` uses.
+        """
         focused = self._get_focused_window()
         if focused is None or "address" not in focused:
             return "ERROR:NO_FOCUS"
@@ -582,6 +608,10 @@ class Navigator:
         if not _VALID_ADDR.match(addr):
             return "ERROR:BAD_ADDRESS"
         was_floating = bool(focused.get("floating"))
+        ws_id = _window_workspace_id(focused)
+        canvas_ws = ws_id if ws_id is not None and ws_id in self._canvas_mode_workspaces else None
+        if canvas_ws is not None and self._preserve_geometry and was_floating:
+            self._remember_window_box(canvas_ws, addr, focused)
         try:
             lua = (
                 f"{LUA_DISPATCH_HELPER}\n"
@@ -596,7 +626,49 @@ class Navigator:
         except Exception as e:
             log.warning("toggle single failed: %s", e)
             return "ERROR:TOGGLE_FAILED"
+        if canvas_ws is not None and self._preserve_geometry and not was_floating:
+            self._restore_window_box(canvas_ws, addr)
         return "TILED" if was_floating else "FLOATED"
+
+    def _remember_window_box(self, workspace_id: int, addr: str, window: dict[str, Any]) -> None:
+        """Store one window's box in the workspace's floating record."""
+        box = _window_box(window)
+        if box is None:
+            return
+        current = dict(self._floating_geos.get(workspace_id, {}))
+        current[addr] = box
+        current = self._drop_dead_addresses(current)
+        next_floating = dict(self._floating_geos)
+        next_floating[workspace_id] = current
+        # Persist before mutating memory, like the toggle paths: a failed write
+        # leaves the daemon and the file agreeing on the old state.
+        try:
+            self._persist_canvas_state(self._canvas_mode_workspaces, next_floating)
+        except toggle_state.ToggleStateError as e:
+            log.warning("single toggle state save failed: %s", e)
+            return
+        self._floating_geos = next_floating
+
+    def _restore_window_box(self, workspace_id: int, addr: str) -> None:
+        """Put a window back at the box it had while it was in the canvas."""
+        box = self._floating_geos.get(workspace_id, {}).get(addr)
+        if box:
+            self._apply_floating_geos(workspace_id, {addr: box})
+
+    def _drop_dead_addresses(
+        self, boxes: dict[str, dict[str, list[int]]]
+    ) -> dict[str, dict[str, list[int]]]:
+        """Keep only addresses the compositor still has, so a closed window's
+        box cannot linger."""
+        if not boxes:
+            return boxes
+        try:
+            clients: list[dict[str, Any]] = json.loads(self._ipc.send("j/clients"))
+        except Exception as e:
+            log.warning("live address lookup failed: %s", e)
+            return boxes
+        live = {str(w.get("address")) for w in clients if isinstance(w.get("address"), str)}
+        return {a: b for a, b in boxes.items() if a in live}
 
     def canvas_reset(self) -> str:
         """Forget the saved canvas layout for the active workspace.
