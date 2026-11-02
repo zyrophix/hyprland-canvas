@@ -35,6 +35,11 @@ but does not cover the other three versions.
   missing it leaves the binary reporting the release before.
 - Config defaults live in `DEFAULT_CONFIG` in `canvas/config.py`. The repo's
   `config.yml` is a copy template and is deliberately not shipped in the wheel.
+- The control socket and the toggle state live under one runtime directory:
+  `<runtime-dir>/canvas.sock` and `<runtime-dir>/canvas/toggle-state.json`. That
+  directory is `/run/user/<uid>` when it exists, else `$XDG_RUNTIME_DIR`, else
+  `/tmp/user/<uid>` — the last one created 0700 and refused unless it is a real
+  directory we own.
 - Runtime dependencies: one, `pyyaml`. Hyprland IPC is one short-lived Unix
   socket per request — the server closes after each response — so the pan loop
   pays a connect per frame instead of a subprocess per frame.
@@ -43,7 +48,12 @@ but does not cover the other three versions.
 
 - `mypy` covers `canvas/` only. `tests/` is untyped and CI will not tell you.
 - A new `CANVAS_DEBUG` trace event belongs in `docs/debugging.md`, which holds
-  the complete level 1 and level 2 vocabulary.
+  the complete level 1 and level 2 vocabulary. `tests/test_debug_vocabulary.py`
+  reads the event names out of `canvas/` and requires each to be a literal listed
+  in the doc, so a new one fails the gate until the doc is updated.
+- `tests/conftest.py` redirects the runtime directory per test, so no test can
+  write the live toggle state or bind the live control socket.
+  `tests/test_isolation.py` guards that redirection.
 - Toggle state is versioned and older files keep loading: v4 is current, and v2
   and v3 must still restore.
 - The daemon targets Hyprland 0.55+ with a Lua config. Geometry calls changed

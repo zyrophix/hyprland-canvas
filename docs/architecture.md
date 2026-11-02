@@ -108,10 +108,16 @@ once. Priority per address:
    describe a canvas from an earlier session;
 2. the tiled box the window had at ON, taken from the snapshot.
 
+`canvas-ctl canvas-reset` drops the remembered box for the active workspace, so
+its next ON takes the tiled box (step 2) instead. It is only meaningful while
+that workspace is tiled: the next OFF captures the canvas again, so a reset made
+during canvas does not survive it.
+
 The record is not applied to windows it has nothing for: a state file migrated
 from before 1.2 keeps window addresses and drops their geometry, and such an
 entry falls back to step 2. `preserve_geometry` selects step 1; with it off
-everything goes straight to the tiled box.
+nothing is recorded and no geometry is applied at ON, so each window keeps the
+box the compositor's float toggle gives it.
 
 Only the windows in the snapshot are recorded, so a window that arrived
 floating mid-canvas — the spawn rules make one float at map time — never

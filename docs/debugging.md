@@ -63,6 +63,18 @@ newly created.
 `EDGE_DISARM` with `reason=cursor_left` only disarms before the drag is
 confirmed — see [architecture.md](architecture.md#geometry-on-canvas-on).
 
+`canvas-ctl edge-start` answering EDGE_IGNORED is not a failure. Hyprland
+re-runs the press half of the drag bind when the button comes up, and the daemon
+refuses a start within 100 ms of an edge-stop, so the re-run cannot arm a
+session with no finger on the button. In the trace this is `CMD` with
+`result=EDGE_IGNORED`, and `EDGE_START_DECISION` with `verdict=DUPLICATE_AFTER_STOP`.
+
+The daemon's own line `spawn rules: workspace N is in canvas mode but has no
+windows yet; its rule waits` is expected. A workspace's workarea comes from its
+entry in `j/workspaces`, and a workspace with nothing on it has none yet, so
+there is no monitor to take one from. The one-second check registers the rule as
+soon as the workspace appears there.
+
 ## Reading a JSON run
 
 `CANVAS_DEBUG_FORMAT=json` makes the whole stream one object per line, so a

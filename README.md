@@ -34,6 +34,7 @@ not to, so expect breaking changes.
 | Step-pan | your own keys → `canvas-ctl pan-left/right/up/down` | Move the whole canvas one `pan_step` (100 px by default) in that direction |
 | Center under cursor | SUPER+MMB | Center the canvas on the topmost floating window under the mouse cursor without changing focus |
 | Canvas toggle | SUPER+SHIFT+C | Toggle all windows on workspace to/from floating, keeping each window exactly where and how big it was |
+| Reset layout | your own keys → `canvas-ctl canvas-reset` | Forget the saved canvas layout for the active workspace, so the next toggle lays its windows out from the tiling boxes. Only meaningful while the workspace is tiled |
 | Window sizing | on canvas enable | Give windows that open while canvas is on a size — one default, on by default (see [Sizing windows that open during canvas](#sizing-windows-that-open-during-canvas)) |
 | Toggle single | SUPER+SHIFT+V | Toggle focused window floating ↔ tiled |
 | Invert | SUPER+SHIFT+G | Invert pan direction |
@@ -208,6 +209,10 @@ canvas:
 
 That is the shape; the complete template — every key, its default and what it
 does — is [`config.yml`](config.yml) in the repository.
+
+`window_pan_excludes` names window classes the canvas leaves in place, matched
+as a case-insensitive substring of the class. Fullscreen, hidden and pinned
+windows are always excluded, whether or not they match.
 
 Invalid values (wrong type, zero/negative numbers, a size that is not a size)
 are rejected at daemon startup with the exact offending keys listed on stderr.
