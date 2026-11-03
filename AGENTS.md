@@ -60,10 +60,9 @@ but does not cover the other three versions.
   `tests/test_isolation.py` guards that redirection.
 - Toggle state is versioned and older files keep loading: v4 is current, and v2
   and v3 must still restore.
-- The daemon targets Hyprland 0.55+ with a Lua config. Geometry calls changed
-  between 0.55 and 0.56 and `hl.bind` options changed between 0.56 and 0.57
-  (`mouse` is parsed now and is exclusive with `release`), and none of this is
-  testable without a live compositor.
+- The daemon targets Hyprland 0.57+ with a Lua config. `hl.bind`'s `mouse`
+  option is parsed and is exclusive with `release`, and none of it is testable
+  without a live compositor.
 - `canvas.auto_float` windowrules are registered at toggle time, not at config
   load, so a missing `SPAWN_RULES_REGISTER` trace means `auto_float` is off or
   the toggle did not reach that code. The trace is re-sent once a second while

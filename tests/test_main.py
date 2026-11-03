@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from canvas.__main__ import ctl_main, daemon_main
+from canvas.__main__ import _COMMANDS, ctl_main, daemon_main
 
 
 def test_ctl_main_no_args_exits():
@@ -122,23 +122,7 @@ def test_ctl_main_help_lists_commands(capsys):
         except SystemExit as e:
             assert e.code == 0
     out = capsys.readouterr().out
-    for name, _ in [
-        ("ping", ""),
-        ("status", ""),
-        ("pan-start", ""),
-        ("pan-stop", ""),
-        ("nav-left", ""),
-        ("nav-right", ""),
-        ("nav-up", ""),
-        ("nav-down", ""),
-        ("center-cursor", ""),
-        ("canvas-toggle", ""),
-        ("canvas-toggle-all", ""),
-        ("canvas-toggle-single", ""),
-        ("toggle", ""),
-        ("edge-start", ""),
-        ("edge-stop", ""),
-    ]:
+    for name, _ in _COMMANDS:
         assert name in out
 
 

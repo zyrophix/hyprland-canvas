@@ -16,9 +16,7 @@ _VALID_ADDR = re.compile(r"^0x[0-9a-fA-F]+$")
 # Hyprland reports a window's fullscreen state as eFullscreenMode, not a bool:
 # 0 none, 1 maximized, 2 fullscreen. Only the last takes over the output, so
 # only the last rules a window out of the canvas — a maximized window is still
-# an ordinary floating window that the user can drag. It has been an integer
-# since at least 0.55, the oldest version this daemon supports, so there is no
-# boolean form to stay compatible with.
+# an ordinary floating window that the user can drag.
 FSMODE_FULLSCREEN = 2
 
 

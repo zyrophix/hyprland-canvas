@@ -7,6 +7,126 @@ subject cannot carry lives under **Details**.
 Newest first. Commits made since the last release stay in `git log` until that
 release is cut; nothing here is hand-maintained in between.
 
+## 1.7.0
+
+- chore: cut 1.7.0
+- feat: re-read the config file when it changes on disk
+- docs: correct what a window rule affects on registration
+- docs: show optional step-pan and reset binds
+- docs: correct the trace field lists and the version's fourth home
+- fix: make canvas-toggle-single return a window to its canvas box
+- docs: document canvas-reset, pan exclusions, and the edge/trace corner cases
+- docs: align the config template, unify the bind style, and trim the README example
+- fix: make a canvas drag 1:1, removing the speed and max\_speed keys
+- chore: enable mypy strict and the RUF, C4, RET, TC and ARG rules
+- feat: fall back to a camera step when navigation has nothing to jump to
+- feat: add keyboard step-panning with pan-left/right/up/down
+- feat: add canvas-reset, which forgets a workspace's saved canvas layout
+- docs: show a status-bar module and how to query a JSON trace
+- feat(debug): make the JSON format cover the daemon log too
+- fix: stop re-registering live spawn rules, which grew them on every pass
+- fix: explain the deferred spawn rule instead of calling it a missing workarea
+- fix: measure the idle timeout by gesture input, and make it configurable
+- fix: ignore the duplicate edge-start the drag bind sends on release
+- fix(debug): case-insensitive filter, valid JSON numbers, and a clean reset
+- test: require trace event names to be literals, so none can skip the doc check
+- feat: report the daemon's real state from status, with --json
+- test: fail the gate when a trace event is not documented
+- feat(debug): readable trace lines, an event filter and a JSON mode
+- refactor: drop \_restore\_floating\_geos and \_empty\_workspace
+- test: property tests for state migration, size specs and ordering
+- test: cover the CLI, IPC and config error contracts
+- test: cover canvas\_toggle\_single and the geometry failure paths
+- test: cover the daemon main loop, including both give-up paths
+- test: cover cursor\_poller end to end, including the give-up path
+- docs: mark the release binds transparent so they are not shadowed
+- test: keep the suite out of the live runtime directory
+- fix: print the missing-workarea line once per workspace, not every re-arm
+- docs: per-class sizing is a windowrule now, and auto\_float is on
+- fix: re-register the spawn rules when the compositor reloads
+- feat(config): turn auto\_float on by default, and do not refuse a toggle over it
+- refactor: drop canvas.spawn.rules, which duplicated windowrule
+- fix(config): refuse settings this version does not read
+- fix: verify the /tmp fallback runtime directory before trusting it
+- fix: extend the window exclusions to navigation, and read fullscreen as a mode
+- chore(ci): add Python 3.15, commit uv.lock, pin markdownlint
+- docs: fix AGENTS.md on the version count, the socket, and 0.57 binds
+- docs: drop mouse from the release binds, which Hyprland 0.57 rejects
+- docs: point Contributing at CI instead of naming two of its five steps
+- docs: document SPAWN\_RULES\_DROP, the one trace event the vocabulary missed
+- docs: add AGENTS.md, and correct three claims it made about itself
+- docs: say what is unstable and what kind of input is wanted
+- docs: the README pixel example really is 960x620 now
+- docs: reassemble the bullet that was split across three entries
+- chore: changelog is a generated list plus a Details block
+- chore: drop the drydock standards stamp
+
+### Details
+
+- Three config keys are gone, and a config that still names any of them stops
+  the daemon at startup with a message saying so, rather than quietly behaving
+  differently: `canvas.spawn.rules` — per-class spawn sizing belongs in your
+  Hyprland config as a `windowrule` now — plus `speed` and `max_speed`. The
+  1.6.0 template shipped all three, so a config copied from it has to have
+  those lines deleted before the daemon will start.
+- `canvas.auto_float` is on by default. A window opened while a workspace is in
+  canvas mode arrives floated, sized and centred by a compositor rule, where
+  1.6.0 left it alone unless the flag was set. Set `canvas.auto_float: false`
+  to get the old behaviour back.
+- Dragging the canvas is 1:1. `speed` multiplied the distance travelled rather
+  than the rate: the total was the sum of cursor deltas and windows were placed
+  absolutely from their baseline, so the window under the pointer slid by
+  `(speed - 1) x distance` — 240 px off after a 400 px pull at the old default
+  of 1.6. `max_speed` clamped each frame's delta and discarded the clipped
+  distance, which is the same drift on a fast flick. Both are gone; the
+  pointer's own displacement is applied in full. More reach per movement comes
+  from pointer acceleration in the compositor or from the step commands below.
+- `canvas-toggle-single` keeps the box of the window it toggles, inside canvas
+  mode. It used to delegate to the compositor's float toggle, which does not
+  remember a tiled box, so the window came back centred while the workspace-wide
+  toggle returned every window exactly where it was. Both now use the same
+  per-workspace record: leaving the canvas stores the box, rejoining applies it.
+- `canvas-reset` forgets the saved canvas layout of the active workspace, so the
+  next toggle lays its windows out from the tiling boxes instead of the
+  positions remembered from the previous canvas. It is meaningful while the
+  workspace is tiled, since the next toggle off captures the canvas again.
+- `pan-left`/`right`/`up`/`down` move the whole canvas one `pan_step` (100 px),
+  for keys of your choosing; it moves the view, so `pan-left` shifts the windows
+  right.
+- `nav-*` falls back to the camera: when there is no window in the asked
+  direction — pressing up in a single row, say — the view moves one `pan_step`
+  instead of the command doing nothing.
+- `idle_timeout` is a setting (0.5 s by default) that ends a pan or edge-scroll
+  once the gesture stops producing input, cursor or dragged-window movement. It
+  covers the release event Hyprland never delivers, which is what used to leave
+  a pan running on a lost button-up.
+- The daemon re-reads the config file by itself when it changes on disk, so an
+  edit no longer needs a restart or a command. The file's mtime and size are
+  checked once a second, and a change goes through the same validate-then-apply
+  path `canvas-ctl reload` uses: a half-written or invalid file is refused and
+  the running config stays. If every config file is gone, with nothing left to
+  read at all, the running values are kept rather than reverted to the built-in
+  defaults. The example systemd unit gained `ExecReload=canvas-ctl reload`, so
+  `systemctl --user reload` works and waits for the result.
+- `canvas-ctl status` reports what the daemon actually knows about itself —
+  version, pid, the config file it read, pan and edge state, the workspaces in
+  canvas mode, and the spawn rules it believes are registered. `--json` returns
+  the same as one object for a status bar or a script.
+- Tracing is readable: level 1 prints `<seconds> EVENT key=value ...` with no
+  logger prefix, `CANVAS_DEBUG_FILTER` keeps the events whose name matches, and
+  `CANVAS_DEBUG_FORMAT=json` turns the whole stream — trace lines and the
+  daemon's own records alike — into one JSON object per line for `jq`.
+- Spawn rules no longer grow while canvas mode is on. Re-registering a rule by
+  name appends to its effect list in the compositor instead of replacing it, so
+  the one-second check grew the rule forever; it now registers only when a
+  marker in the compositor's Lua state is gone, which is also what a
+  `hyprctl reload` removes. A workspace that is in canvas mode but has no
+  windows yet is reported as waiting for its rule, not as a missing workarea.
+- The drag bind's press half is re-run by Hyprland when the button comes up.
+  When that re-run landed after the release half it armed an edge-scroll session
+  with no finger on the button, which then scrolled until the idle timeout; a
+  start within 100 ms of a stop is now refused.
+
 ## 1.6.0
 
 - docs: the spawn-size paragraph still described the 1.5.0 bug

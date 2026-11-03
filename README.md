@@ -41,7 +41,7 @@ not to, so expect breaking changes.
 
 ## Install
 
-Requires: Hyprland 0.55+ (Lua config with `hl.*` API), Python 3.12+, `uv`, `pipx`, or Arch `makepkg`.
+Requires: Hyprland 0.57+ (Lua config with `hl.*` API), Python 3.12+, `uv`, `pipx`, or Arch `makepkg`.
 
 **uv (recommended):**
 
@@ -118,7 +118,7 @@ with `hl.exec_cmd("systemctl --user start hypr-canvasd.service")`).
 
 ### 2. Add Hyprland keybinds
 
-Hyprland 0.55+ uses Lua for config. Add these binds:
+Hyprland 0.57+ uses Lua for config. Add these binds:
 
 ```lua
 -- Canvas: pan (mouse binds)
@@ -400,7 +400,7 @@ I'd be happy to receive bug reports, suggestions, discussions, and ideas for the
 project's development.
 
 CI is the gate: ruff, ruff-format, mypy, pytest and markdownlint, on Python
-3.12, 3.13 and 3.14.
+3.12, 3.13, 3.14 and 3.15.
 
 ## License
 

@@ -1,12 +1,12 @@
 # Maintainer: zyrophix
 pkgname=hyprland-canvas
-pkgver=1.6.0
+pkgver=1.7.0
 pkgrel=1
 pkgdesc="Infinite canvas for Hyprland — pan floating windows like an infinite desktop"
 arch=('any')
 url="https://github.com/zyrophix/hyprland-canvas"
 license=('MIT')
-depends=('hyprland>=0.55' 'python>=3.12' 'python-yaml')
+depends=('hyprland>=0.57' 'python>=3.12' 'python-yaml')
 makedepends=('python-build' 'python-hatchling' 'python-installer' 'fakeroot')
 source=("hyprland-canvas::git+https://github.com/zyrophix/hyprland-canvas.git#tag=v$pkgver")
 sha256sums=('SKIP')

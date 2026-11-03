@@ -77,13 +77,18 @@ calls `ruleEngine()->clearAllRules()`, clears its map of named rules and
 recreates the Lua state, so a rule the daemon still believes in is gone and its
 name forgotten, with nothing reported. The daemon therefore checks once a second
 while any workspace is in canvas mode, and the marker described above tells it
-whether the compositor still holds the rules. Confirmed on 0.55.4, 0.56.2 and
-0.57.0.
+whether the compositor still holds the rules. Confirmed on 0.57.0.
 
 The OFF tile set is the snapshot taken at ON plus every window that is floating
 at OFF but was not floating at ON. Addresses already in the snapshot keep their
 recorded geometry, because `_toggle_order` reads it to restore the original
 row-major layout.
+
+The daemon builds the match itself — `{ class = ".*", workspace = N }` — so
+there is no user pattern to pass through. Per-class patterns are the compositor's
+business, through the user's own `windowrule`, and it matches those with
+`re2::RE2::FullMatch`: `class = "btop"` matches only the exact class, and a
+substring needs `.*btop.*`.
 
 ## Geometry on canvas ON
 
@@ -132,9 +137,3 @@ toggle.
 
 Addresses that were already floating at ON are absent from the snapshot and so
 are never touched.
-
-The daemon builds the match itself — `{ class = ".*", workspace = N }` — so
-there is no user pattern to pass through. Per-class patterns are the compositor's
-business, through the user's own `windowrule`, and it matches those with
-`re2::RE2::FullMatch`: `class = "btop"` matches only the exact class, and a
-substring needs `.*btop.*`.

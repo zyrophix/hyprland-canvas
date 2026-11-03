@@ -66,5 +66,7 @@ if [ "$COUNT" -eq 0 ]; then
   exit 1
 fi
 
-printf '### %s\n\n' "$VERSION"
-git log --no-merges --format='- %s' "$RANGE"
+printf '## %s\n\n' "$VERSION"
+# The subjects land in a markdown file, where a pair of underscores is read as
+# emphasis and an unpaired one is not, so the escape has to be unconditional.
+git log --no-merges --format='- %s' "$RANGE" | sed 's/_/\\_/g'
