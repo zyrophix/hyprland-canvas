@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from canvas.daemon import DaemonState
+from canvas.daemon import DaemonState, _config_stamp
 from canvas.navigation import Navigator
 from canvas.panning import EdgeScrollParams, EdgeScrollState, PanningState
 
@@ -423,3 +423,98 @@ def test_handle_ipc_canvas_toggle_single_stops_pan():
 
     assert ds.panning.is_dragging is False
     ds.navigator.canvas_toggle_single.assert_called_once()
+
+
+# --- the config file is watched on disk -------------------------------------
+
+
+def _poll(ds: DaemonState, at: float) -> bool:
+    with patch("canvas.daemon.time.monotonic", return_value=at):
+        return ds.reload_config_if_changed()
+
+
+def _write_config(tmp_path, body: str):
+    path = tmp_path / "config.yml"
+    path.write_text(body)
+    return path
+
+
+def test_an_unchanged_config_is_not_reread(tmp_path):
+    path = _write_config(tmp_path, "pan_step: 100\n")
+    ds = _make_daemon_state()
+    ds._config_stamp = _config_stamp(str(path))
+
+    with (
+        patch("canvas.daemon.resolve_path", return_value=str(path)),
+        patch.object(DaemonState, "_handle_reload") as reload_,
+    ):
+        assert _poll(ds, 100.0) is False
+
+    reload_.assert_not_called()
+
+
+def test_an_edited_config_is_reloaded(tmp_path):
+    path = _write_config(tmp_path, "pan_step: 100\n")
+    ds = _make_daemon_state()
+    ds._config_stamp = _config_stamp(str(path))
+    path.write_text("pan_step: 1000\n")
+
+    with (
+        patch("canvas.daemon.resolve_path", return_value=str(path)),
+        patch.object(DaemonState, "_handle_reload", return_value="OK: reloaded") as reload_,
+    ):
+        assert _poll(ds, 100.0) is True
+
+    reload_.assert_called_once()
+
+
+def test_an_invalid_edit_is_tried_once_per_change(tmp_path):
+    """Otherwise a saved mistake would be re-parsed and re-logged every second."""
+    path = _write_config(tmp_path, "pan_step: 100\n")
+    ds = _make_daemon_state()
+    ds._config_stamp = _config_stamp(str(path))
+    path.write_text("pan_step: 1000\n")
+
+    with (
+        patch("canvas.daemon.resolve_path", return_value=str(path)),
+        patch.object(
+            DaemonState, "_handle_reload", return_value="ERROR:CONFIG_INVALID"
+        ) as reload_,
+    ):
+        assert _poll(ds, 100.0) is False
+        assert _poll(ds, 102.0) is False
+
+    reload_.assert_called_once()
+
+
+def test_a_vanished_config_keeps_the_running_one(tmp_path):
+    path = _write_config(tmp_path, "pan_step: 100\n")
+    ds = _make_daemon_state()
+    ds._config_stamp = _config_stamp(str(path))
+    path.unlink()
+
+    with (
+        patch("canvas.daemon.resolve_path", return_value=None),
+        patch.object(DaemonState, "_handle_reload") as reload_,
+    ):
+        assert _poll(ds, 100.0) is False
+
+    reload_.assert_not_called()
+
+
+def test_the_config_poll_is_throttled(tmp_path):
+    path = _write_config(tmp_path, "pan_step: 100\n")
+    ds = _make_daemon_state()
+    ds._config_stamp = _config_stamp(str(path))
+    path.write_text("pan_step: 1000\n")
+
+    with (
+        patch("canvas.daemon.resolve_path", return_value=str(path)),
+        patch.object(DaemonState, "_handle_reload", return_value="OK: reloaded") as reload_,
+    ):
+        assert _poll(ds, 100.0) is True
+        path.write_text("pan_step: 2000\n")
+        assert _poll(ds, 100.2) is False  # inside the interval
+        assert _poll(ds, 102.0) is True
+
+    assert reload_.call_count == 2

@@ -36,6 +36,9 @@ but does not cover the other three versions.
   missing it leaves the binary reporting the release before.
 - Config defaults live in `DEFAULT_CONFIG` in `canvas/config.py`. The repo's
   `config.yml` is a copy template and is deliberately not shipped in the wheel.
+  The daemon re-reads the file when it changes on disk and on `canvas-ctl
+  reload`; both go through the same validate-then-apply path, so there is one
+  loader and one place a key can be applied.
 - The control socket and the toggle state live under one runtime directory:
   `<runtime-dir>/canvas.sock` and `<runtime-dir>/canvas/toggle-state.json`. That
   directory is `/run/user/<uid>` when it exists, else `$XDG_RUNTIME_DIR`, else

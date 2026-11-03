@@ -155,7 +155,10 @@ hl.bind("SUPER + CTRL + left", hl.dsp.exec_cmd("canvas-ctl pan-left"))
 hl.bind("SUPER + CTRL + right", hl.dsp.exec_cmd("canvas-ctl pan-right"))
 hl.bind("SUPER + CTRL + up", hl.dsp.exec_cmd("canvas-ctl pan-up"))
 hl.bind("SUPER + CTRL + down", hl.dsp.exec_cmd("canvas-ctl pan-down"))
-hl.bind("SUPER + CTRL + C", hl.dsp.exec_cmd("canvas-ctl canvas-reset && canvas-ctl canvas-toggle"))
+hl.bind("SUPER + CTRL + C", function()
+    hl.exec_cmd("canvas-ctl canvas-reset")
+    hl.exec_cmd("canvas-ctl canvas-toggle")
+end)
 ```
 
 A bind whose handler does one thing passes the dispatcher straight to
@@ -227,10 +230,11 @@ Invalid values (wrong type, zero/negative numbers, a size that is not a size)
 are rejected at daemon startup with the exact offending keys listed on stderr.
 So is a key this version does not read — a typo, or a setting an earlier version
 had — because unknown keys would otherwise be merged in without complaint, and a
-half-applied config is worse than one that refuses to start. To pick up an edited
-config without restarting the daemon, run `canvas-ctl reload` — it re-reads the
-file, prints which one it used, and leaves the running config untouched if the
-new one does not validate.
+half-applied config is worse than one that refuses to start. The daemon then
+re-reads the file on its own whenever it changes on disk, so an edit applies
+within a second; `canvas-ctl reload` does the same on demand, printing which file
+it used and leaving the running config untouched if the new one does not
+validate.
 
 ### What canvas-toggle does to window geometry
 

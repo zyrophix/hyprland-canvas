@@ -49,6 +49,11 @@ Type=simple
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=canvasd
 
+# systemd's own documentation prefers a command that waits for the reload over
+# a signal, and `canvas-ctl reload` is synchronous. The daemon also re-reads the
+# file on its own when it changes on disk.
+ExecReload=canvas-ctl reload
+
 # Only needed when more than one Hyprland instance is running. With a single
 # instance the daemon finds the socket on its own; with several it would pick
 # the first one it finds, which may not be the session you are looking at.

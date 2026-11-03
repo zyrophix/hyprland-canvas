@@ -24,6 +24,21 @@ log = logging.getLogger("canvas")
 _VALID_ADDR = re.compile(r"^0x[0-9a-fA-F]+$")
 
 
+def _config_stamp(path: str | None) -> tuple[str | None, int, int]:
+    """Identity of a config file: its path, mtime and size.
+
+    A missing or unreadable file shares the `None` stamp, which is what a daemon
+    started without a config file records.
+    """
+    if path is None:
+        return (None, 0, 0)
+    try:
+        st = os.stat(path)
+    except OSError:
+        return (None, 0, 0)
+    return (path, st.st_mtime_ns, st.st_size)
+
+
 def _lua_escape(s: str) -> str:
     """Escape a string for safe interpolation into a Lua double-quoted literal."""
     return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
@@ -40,6 +55,10 @@ class DaemonState:
     # changed costs one eval and two queries. One second keeps the window small
     # between a compositor reload and the rules coming back.
     _SPAWN_REARM_INTERVAL = 1.0
+
+    # How often the config file is checked for changes, in seconds. Two stats
+    # per pass, and only a changed stamp costs a parse.
+    _CONFIG_POLL_INTERVAL = 1.0
 
     # A press half that dispatches `window.drag()` makes Hyprland re-run the
     # binding when the button comes up, so edge-start arrives a second time
@@ -78,6 +97,10 @@ class DaemonState:
         self._last_spawn_rearm = time.monotonic()
         # Last EDGE_STOP, to recognise the drag bind's release re-run.
         self._last_edge_stop = 0.0
+        # The config file as it was last read, so an edit on disk can be told
+        # apart from the file the running config came from.
+        self._config_stamp: tuple[str | None, int, int] = (None, 0, 0)
+        self._last_config_check = 0.0
 
     def apply_config(self, cfg: dict[str, Any], source: str | None = None) -> None:
         """Push config values onto the live state objects.
@@ -101,6 +124,7 @@ class DaemonState:
             # The file the values came from, for `status`. Passed in rather than
             # looked up, so a reload cannot report a path it did not read.
             self.config_source = source
+            self._config_stamp = _config_stamp(source)
             self.panning.idle_timeout = cfg["idle_timeout"]
             self.panning.inverted = cfg["invert"]["enabled"]
 
@@ -566,6 +590,31 @@ class DaemonState:
         log.info("reloaded config from %s", source or "built-in defaults")
         return f"OK: reloaded ({source})" if source else "OK: reloaded (built-in defaults)"
 
+    def reload_config_if_changed(self) -> bool:
+        """Reload when the config file changed on disk since the last read.
+
+        The trigger is the same one `canvas-ctl reload` uses; this only decides
+        when. Reads what a restart would, except that a config that is gone with
+        nothing left to replace it keeps the running values instead of reverting
+        to the built-in defaults.
+        """
+        now = time.monotonic()
+        if now - self._last_config_check < self._CONFIG_POLL_INTERVAL:
+            return False
+        self._last_config_check = now
+        source = resolve_path()
+        stamp = _config_stamp(source)
+        if stamp == self._config_stamp:
+            return False
+        # Recorded before the attempt, so an invalid file is tried once per edit
+        # instead of once per poll.
+        self._config_stamp = stamp
+        if source is None:
+            log.warning("config file is gone; keeping the running configuration")
+            return False
+        log.info("config changed on disk, reloading")
+        return not self._handle_reload().startswith("ERROR")
+
     def rearm_spawn_rules_if_due(self) -> bool:
         """Re-register the spawn rules once the re-arm interval has elapsed.
 
@@ -800,6 +849,7 @@ def run() -> None:
         while not stop_event.is_set():
             with daemon_state._operation_lock:
                 daemon_state.handle_idle_pan_stop()
+                daemon_state.reload_config_if_changed()
                 daemon_state.rearm_spawn_rules_if_due()
 
                 if not state.pan_active:
