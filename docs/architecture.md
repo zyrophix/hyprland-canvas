@@ -27,11 +27,12 @@ Key design decisions:
 
 With the flag on, windows opened while a workspace is in canvas mode are
 floated, sized and centred by the compositor itself: the daemon registers a
-`windowrule` from Lua and Hyprland applies it at map time. Three properties of
+`windowrule` from Lua and Hyprland applies it at map time. Four properties of
 the compositor make this cheap and are the reason no event listener is needed:
 
-- A rule only affects windows created **after** it is registered, so "enabled
-  while canvas is on" is exactly the desired semantics.
+- A rule is evaluated against **every** window, the ones already mapped
+  included, not only those created after it is registered — which is why a
+  canvas rule carries placement and nothing about how a window looks.
 - Matching rules are applied in **registration order, last write wins**: a rule
   the daemon registers at toggle time overrides one declared in the user's
   config, which was loaded at startup.

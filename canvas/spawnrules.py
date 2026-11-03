@@ -2,8 +2,11 @@
 
 Windows opened while a workspace is in canvas mode are floated and sized by
 the compositor itself: rules are registered from Lua and applied at map time.
-Rules only affect windows created *after* registration, which is exactly the
-semantics we want — no poller, no socket listener, no per-window tracking.
+No poller, no socket listener, no per-window tracking.
+
+Registering a rule re-evaluates it against every window already mapped, not
+only the ones opened afterwards, so a canvas rule states placement and nothing
+about how a window looks.
 
 Ordering matters: the compositor applies every matching rule in registration
 order and the last write wins, so the catch-all default is registered first
