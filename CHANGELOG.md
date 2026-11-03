@@ -9,6 +9,7 @@ release is cut; nothing here is hand-maintained in between.
 
 ## 1.7.0
 
+- fix(ci): pin setup-uv to a tag that exists
 - chore: cut 1.7.0
 - feat: re-read the config file when it changes on disk
 - docs: correct what a window rule affects on registration
